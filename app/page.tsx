@@ -1,4 +1,75 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import Link from "next/link";
+import { supabase } from "@/lib/supabase";
+
+type Stats = {
+  total: number;
+  pedroVitorias: number;
+  netuVitorias: number;
+  empates: number;
+};
+
 export default function Home() {
+  const [stats, setStats] = useState<Stats>({
+    total: 0,
+    pedroVitorias: 0,
+    netuVitorias: 0,
+    empates: 0,
+  });
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    async function carregarEstatisticas() {
+      try {
+        // Busca todas as partidas encerradas
+        const { data: matches, error } = await supabase
+          .from("matches")
+          .select("id, winner, status")
+          .eq("status", "CLOSED");
+
+        if (error) {
+          console.error("Erro ao carregar estatísticas:", error);
+          setLoading(false);
+          return;
+        }
+
+        if (!matches || matches.length === 0) {
+          setStats({ total: 0, pedroVitorias: 0, netuVitorias: 0, empates: 0 });
+          setLoading(false);
+          return;
+        }
+
+        // Calcula as estatísticas
+        const total = matches.length;
+        const pedroVitorias = matches.filter((m) => m.winner === "PEDRO").length;
+        const netuVitorias = matches.filter((m) => m.winner === "NETU").length;
+        const empates = matches.filter((m) => m.winner === "" || m.winner === null).length;
+
+        setStats({
+          total,
+          pedroVitorias,
+          netuVitorias,
+          empates,
+        });
+      } catch (err) {
+        console.error("Erro:", err);
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    carregarEstatisticas();
+  }, []);
+
+  const navItems = [
+    { label: "Nova Partida", href: "/partidas/nova" },
+    { label: "Histórico", href: "/historico" },
+    { label: "Rankings", href: "/rankings" },
+    { label: "Disciplina", href: "/disciplina" },
+  ];
+
   return (
     <main className="min-h-screen bg-zinc-950 text-white">
       <section className="mx-auto flex min-h-screen max-w-6xl flex-col px-6 py-8">
@@ -33,10 +104,10 @@ export default function Home() {
 
         <section className="mt-8 grid gap-4 md:grid-cols-4">
           {[
-            ["Jogos", "0"],
-            ["Vitórias Pedro", "0"],
-            ["Vitórias Netu", "0"],
-            ["Empates", "0"],
+            ["Jogos", loading ? "-" : stats.total],
+            ["Vitórias Pedro", loading ? "-" : stats.pedroVitorias],
+            ["Vitórias Netu", loading ? "-" : stats.netuVitorias],
+            ["Empates", loading ? "-" : stats.empates],
           ].map(([label, value]) => (
             <div
               key={label}
@@ -49,16 +120,15 @@ export default function Home() {
         </section>
 
         <section className="mt-8 grid gap-4 md:grid-cols-4">
-          {["Nova Partida", "Histórico", "Rankings", "Disciplina"].map(
-            (item) => (
-              <button
-                key={item}
-                className="rounded-2xl border border-zinc-800 bg-zinc-900 px-6 py-5 text-left font-bold transition hover:border-zinc-500 hover:bg-zinc-800"
-              >
-                {item}
-              </button>
-            )
-          )}
+          {navItems.map((item) => (
+            <Link
+              key={item.href}
+              href={item.href}
+              className="rounded-2xl border border-zinc-800 bg-zinc-900 px-6 py-5 text-left font-bold transition hover:border-zinc-500 hover:bg-zinc-800"
+            >
+              {item.label}
+            </Link>
+          ))}
         </section>
       </section>
     </main>
