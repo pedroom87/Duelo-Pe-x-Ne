@@ -82,16 +82,12 @@ export async function createPlayer(name: string, side: "PEDRO" | "NETU"): Promis
     return existing as Player;
   }
 
-  // Converte side para nome do time
-  const teamName = side === "PEDRO" ? "São Paulo" : "Palmeiras";
-
-  // Cria novo jogador
+  // Cria novo jogador (apenas com colunas que existem: name, side)
   const { data: newPlayer, error: createError } = await supabase
     .from("players")
     .insert({
       name: trimmedName,
       side,
-      team: teamName,
     })
     .select()
     .single();
