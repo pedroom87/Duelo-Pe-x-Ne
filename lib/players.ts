@@ -53,3 +53,50 @@ export async function searchPlayers(search: string) {
     a.name.localeCompare(b.name)
   );
 }
+
+/**
+ * Cria um novo jogador se não existir com o mesmo nome e side
+ * Retorna o jogador criado ou existente
+ */
+export async function createPlayer(name: string, side: "PEDRO" | "NETU"): Promise<Player> {
+  const trimmedName = name.trim();
+
+  if (!trimmedName) {
+    throw new Error("Nome do jogador não pode estar vazio");
+  }
+
+  // Verifica se já existe jogador com esse nome e side
+  const { data: existing, error: checkError } = await supabase
+    .from("players")
+    .select("*")
+    .eq("name", trimmedName)
+    .eq("side", side)
+    .single();
+
+  if (checkError && checkError.code !== "PGRST116") {
+    throw checkError;
+  }
+
+  // Se existe, retorna o existente
+  if (existing) {
+    return existing as Player;
+  }
+
+  // Converte side para nome do time
+  const teamName = side === "PEDRO" ? "São Paulo" : "Palmeiras";
+
+  // Cria novo jogador
+  const { data: newPlayer, error: createError } = await supabase
+    .from("players")
+    .insert({
+      name: trimmedName,
+      side,
+      team: teamName,
+    })
+    .select()
+    .single();
+
+  if (createError) throw createError;
+
+  return newPlayer as Player;
+}

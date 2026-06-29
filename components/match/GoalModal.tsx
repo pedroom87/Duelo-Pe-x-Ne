@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { getPlayers } from "@/lib/players";
+import { getPlayers, createPlayer } from "@/lib/players";
 import {
   addGoal,
   addAssist,
@@ -72,6 +72,51 @@ export default function EventModal({
   );
 
   const config = eventConfig[eventType];
+
+  async function criarERegistrar(nome: string) {
+    try {
+      setLoading(true);
+
+      // Cria o jogador
+      const jogador = await createPlayer(nome, side);
+
+      // Registra o evento com o jogador criado
+      switch (eventType) {
+        case "GOL":
+          await addGoal(matchId, jogador.name, side);
+          break;
+        case "ASSISTENCIA":
+          await addAssist(matchId, jogador.name, side);
+          break;
+        case "AMARELO":
+          await addYellowCard(matchId, jogador.name, side);
+          break;
+        case "VERMELHO":
+          await addRedCard(matchId, jogador.name, side);
+          break;
+        case "LESAO":
+          await addInjury(matchId, jogador.name, side);
+          break;
+        case "GOL_CONTRA":
+          await addOwnGoal(matchId, jogador.name, side);
+          break;
+      }
+
+      // Se for gol ou gol contra, atualiza o placar
+      if (eventType === "GOL" || eventType === "GOL_CONTRA") {
+        await refreshScore(matchId);
+      }
+
+      onSaved();
+      onClose();
+      setSearch("");
+    } catch (error: any) {
+      console.error("Erro ao criar jogador:", error);
+      alert(`Erro: ${error?.message || "Desconhecido"}`);
+    } finally {
+      setLoading(false);
+    }
+  }
 
   async function salvar(nome: string) {
     try {
@@ -151,8 +196,23 @@ export default function EventModal({
         />
 
         <div className="max-h-72 overflow-auto">
-          {filtered.length === 0 && (
+          {filtered.length === 0 && search.trim() === "" && (
             <p className="text-zinc-500 text-center py-4">Nenhum jogador encontrado</p>
+          )}
+
+          {filtered.length === 0 && search.trim() !== "" && (
+            <div className="space-y-3">
+              <p className="text-zinc-500 text-center py-2 text-sm">
+                Nenhum jogador encontrado com esse nome
+              </p>
+              <button
+                onClick={() => criarERegistrar(search)}
+                disabled={loading}
+                className="w-full rounded-lg bg-green-900/50 border border-green-700 p-3 text-green-300 hover:bg-green-900/70 transition disabled:opacity-50 font-bold"
+              >
+                ➕ Criar jogador: {search}
+              </button>
+            </div>
           )}
 
           {filtered.map((player) => (
