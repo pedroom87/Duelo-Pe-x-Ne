@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import { Sidebar } from "@/components/layout/Sidebar";
+import { SpeedInsights } from "@vercel/speed-insights/next";
 
 export const metadata: Metadata = {
   title: "Duelo Pe X Ne",
@@ -19,6 +20,7 @@ export default function RootLayout({
           <Sidebar />
           <div className="flex-1">{children}</div>
         </div>
+        <SpeedInsights />
       </body>
     </html>
   );
