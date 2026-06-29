@@ -19,33 +19,44 @@ export default function Home() {
     empates: 0,
   });
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     async function carregarEstatisticas() {
       try {
-        // Busca todas as partidas encerradas
-        const { data: matches, error } = await supabase
+        // Busca TODAS as partidas (sem filtro de status)
+        const { data: matches, error: err } = await supabase
           .from("matches")
-          .select("id, winner, status")
-          .eq("status", "CLOSED");
+          .select("id, winner, pedro_goals, netu_goals");
 
-        if (error) {
-          console.error("Erro ao carregar estatísticas:", error);
+        if (err) {
+          console.error("Erro ao carregar estatísticas:", err);
+          setError("Erro ao carregar estatísticas");
           setLoading(false);
           return;
         }
 
         if (!matches || matches.length === 0) {
           setStats({ total: 0, pedroVitorias: 0, netuVitorias: 0, empates: 0 });
+          setError(null);
           setLoading(false);
           return;
         }
 
         // Calcula as estatísticas
         const total = matches.length;
-        const pedroVitorias = matches.filter((m) => m.winner === "PEDRO").length;
-        const netuVitorias = matches.filter((m) => m.winner === "NETU").length;
-        const empates = matches.filter((m) => m.winner === "" || m.winner === null).length;
+        const pedroVitorias = matches.filter(
+          (m) => m.winner === "PEDRO" || m.winner === "Pedro"
+        ).length;
+        const netuVitorias = matches.filter(
+          (m) => m.winner === "NETU" || m.winner === "Netu"
+        ).length;
+        const empates = matches.filter(
+          (m) =>
+            m.pedro_goals === m.netu_goals ||
+            m.winner === "EMPATE" ||
+            m.winner === "Empate"
+        ).length;
 
         setStats({
           total,
@@ -53,8 +64,10 @@ export default function Home() {
           netuVitorias,
           empates,
         });
-      } catch (err) {
+        setError(null);
+      } catch (err: any) {
         console.error("Erro:", err);
+        setError("Erro ao carregar dados");
       } finally {
         setLoading(false);
       }
@@ -118,6 +131,12 @@ export default function Home() {
             </div>
           ))}
         </section>
+
+        {error && (
+          <p className="mt-4 text-xs text-zinc-500">
+            ⚠️ {error}
+          </p>
+        )}
 
         <section className="mt-8 grid gap-4 md:grid-cols-4">
           {navItems.map((item) => (
