@@ -131,3 +131,24 @@ export async function endMatch(matchId: string) {
 
   if (error) throw error;
 }
+
+/**
+ * Deleta uma partida e todos seus eventos associados
+ */
+export async function deleteMatch(matchId: string) {
+  // Primeiro deleta todos os eventos da partida
+  const { error: eventsError } = await supabase
+    .from("events")
+    .delete()
+    .eq("match_id", matchId);
+
+  if (eventsError) throw eventsError;
+
+  // Depois deleta a partida
+  const { error: matchError } = await supabase
+    .from("matches")
+    .delete()
+    .eq("id", matchId);
+
+  if (matchError) throw matchError;
+}

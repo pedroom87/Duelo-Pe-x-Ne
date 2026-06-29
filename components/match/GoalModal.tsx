@@ -107,9 +107,9 @@ export default function EventModal({
       onSaved();
       onClose();
       setSearch("");
-    } catch (error) {
-      alert("Erro ao registrar evento");
-      console.error(error);
+    } catch (error: any) {
+      console.error("Erro ao registrar evento:", error);
+      alert(`Erro ao registrar evento: ${error?.message || "Desconhecido"}`);
     } finally {
       setLoading(false);
     }

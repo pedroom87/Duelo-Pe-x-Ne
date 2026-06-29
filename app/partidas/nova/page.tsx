@@ -61,8 +61,9 @@ export default function NovaPartida() {
       setMatch(matchData);
       const evt = await getMatchEvents(match.id);
       setEvents(evt);
-    } catch (error) {
-      console.error(error);
+    } catch (error: any) {
+      console.error("Erro ao carregar eventos:", error);
+      alert(`Erro ao atualizar: ${error?.message || "Desconhecido"}`);
     }
   }
 
