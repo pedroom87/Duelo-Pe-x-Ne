@@ -6,6 +6,7 @@ const items = [
   ["📖", "Histórico", "/historico"],
   ["🏆", "Rankings", "/rankings"],
   ["🟨", "Disciplina", "/disciplina"],
+  ["📥", "Importar Histórico", "/importar-historico"],
 ];
 
 export function Sidebar() {
