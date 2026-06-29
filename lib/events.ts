@@ -12,6 +12,8 @@ type Side = "PEDRO" | "NETU";
 
 /**
  * Registra um evento genérico na partida
+ * 
+ * Busca match_number antes de inserir para garantir integridade
  */
 export async function addEvent(
   matchId: string,
@@ -19,8 +21,21 @@ export async function addEvent(
   side: Side,
   eventType: EventType
 ) {
+  // 1. Busca a partida para obter match_number
+  const { data: match, error: matchError } = await supabase
+    .from("matches")
+    .select("match_number")
+    .eq("id", matchId)
+    .single();
+
+  if (matchError || !match) {
+    throw new Error(`Partida não encontrada (ID: ${matchId})`);
+  }
+
+  // 2. Insere o evento com match_number
   const { error } = await supabase.from("events").insert({
     match_id: matchId,
+    match_number: match.match_number,
     player_name_raw: playerName,
     side,
     event_type: eventType,
