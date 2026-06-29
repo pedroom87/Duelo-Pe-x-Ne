@@ -1,152 +1,242 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import {
+  createMatch,
+  getMatch,
+  getMatchEvents,
+  endMatch,
+  type Match,
+  type MatchEvent,
+} from "@/lib/matches";
+import EventModal from "@/components/match/GoalModal";
 
-type Evento = {
-  lado: "PEDRO" | "NETU";
-  tipo: "GOL" | "ASSISTENCIA" | "AMARELO" | "VERMELHO" | "LESAO" | "GOL_CONTRA";
-  jogador: string;
+type EventType =
+  | "GOL"
+  | "ASSISTENCIA"
+  | "AMARELO"
+  | "VERMELHO"
+  | "LESAO"
+  | "GOL_CONTRA";
+
+const eventIcons = {
+  GOL: { emoji: "⚽", label: "Gol", color: "bg-blue-700" },
+  ASSISTENCIA: { emoji: "🎯", label: "Assistência", color: "bg-yellow-700" },
+  AMARELO: { emoji: "🟨", label: "Amarelo", color: "bg-yellow-600" },
+  VERMELHO: { emoji: "🟥", label: "Vermelho", color: "bg-red-700" },
+  LESAO: { emoji: "🤕", label: "Lesão", color: "bg-orange-700" },
+  GOL_CONTRA: { emoji: "🔵", label: "Gol Contra", color: "bg-blue-600" },
 };
 
 export default function NovaPartida() {
-  const [golsPedro, setGolsPedro] = useState("");
-  const [golsNetu, setGolsNetu] = useState("");
-  const [eventos, setEventos] = useState<Evento[]>([]);
-  const [novoEvento, setNovoEvento] = useState<Evento>({
-    lado: "PEDRO",
-    tipo: "GOL",
-    jogador: "",
-  });
+  const [match, setMatch] = useState<Match | null>(null);
+  const [events, setEvents] = useState<MatchEvent[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [modalOpen, setModalOpen] = useState(false);
+  const [selectedEventType, setSelectedEventType] = useState<EventType>("GOL");
+  const [partida_iniciada, setPartidaIniciada] = useState(false);
+  const [finalizando, setFinalizando] = useState(false);
 
-  function adicionarEvento() {
-    if (!novoEvento.jogador.trim()) return;
-
-    setEventos([...eventos, novoEvento]);
-    setNovoEvento({ ...novoEvento, jogador: "" });
+  // Inicia a partida
+  async function iniciarPartida() {
+    try {
+      setLoading(true);
+      const newMatch = await createMatch();
+      setMatch(newMatch);
+      setPartidaIniciada(true);
+      setEvents([]);
+    } catch (error) {
+      alert("Erro ao iniciar partida");
+      console.error(error);
+    } finally {
+      setLoading(false);
+    }
   }
 
-  return (
-    <main className="min-h-screen bg-zinc-950 px-6 py-8 text-white">
-      <div className="mx-auto max-w-5xl">
-        <a href="/" className="text-sm text-zinc-400 hover:text-white">
-          ← Voltar
-        </a>
+  // Carrega eventos quando modal fecha
+  async function carregarEventos() {
+    if (!match) return;
+    try {
+      const matchData = await getMatch(match.id);
+      setMatch(matchData);
+      const evt = await getMatchEvents(match.id);
+      setEvents(evt);
+    } catch (error) {
+      console.error(error);
+    }
+  }
 
-        <h1 className="mt-6 text-4xl font-black">Nova Partida</h1>
-        <p className="mt-2 text-zinc-400">
-          Registre o placar e os eventos do Duelo Pe X Ne.
-        </p>
+  // Abre o modal para registrar evento
+  function abrirEventoModal(tipo: EventType) {
+    setSelectedEventType(tipo);
+    setModalOpen(true);
+  }
 
-        <section className="mt-8 grid gap-6 md:grid-cols-2">
-          <div className="rounded-3xl border border-red-900/60 bg-red-950/30 p-6">
-            <p className="text-sm font-bold text-red-300">Pedro</p>
-            <h2 className="text-2xl font-black">São Paulo</h2>
-            <input
-              value={golsPedro}
-              onChange={(e) => setGolsPedro(e.target.value)}
-              placeholder="Gols"
-              type="number"
-              className="mt-6 w-full rounded-xl border border-zinc-700 bg-zinc-950 px-4 py-3 text-white"
-            />
-          </div>
+  // Encerra a partida
+  async function encerrarPartida() {
+    if (!match) return;
 
-          <div className="rounded-3xl border border-green-900/60 bg-green-950/30 p-6">
-            <p className="text-sm font-bold text-green-300">Netu</p>
-            <h2 className="text-2xl font-black">Palmeiras</h2>
-            <input
-              value={golsNetu}
-              onChange={(e) => setGolsNetu(e.target.value)}
-              placeholder="Gols"
-              type="number"
-              className="mt-6 w-full rounded-xl border border-zinc-700 bg-zinc-950 px-4 py-3 text-white"
-            />
-          </div>
-        </section>
+    if (!confirm("Tem certeza que deseja encerrar a partida?")) return;
 
-        <section className="mt-8 rounded-3xl border border-zinc-800 bg-zinc-900 p-6">
-          <h2 className="text-2xl font-black">Adicionar evento</h2>
+    try {
+      setFinalizando(true);
+      await endMatch(match.id);
 
-          <div className="mt-6 grid gap-4 md:grid-cols-3">
-            <select
-              value={novoEvento.lado}
-              onChange={(e) =>
-                setNovoEvento({
-                  ...novoEvento,
-                  lado: e.target.value as Evento["lado"],
-                })
-              }
-              className="rounded-xl border border-zinc-700 bg-zinc-950 px-4 py-3"
-            >
-              <option value="PEDRO">Pedro / São Paulo</option>
-              <option value="NETU">Netu / Palmeiras</option>
-            </select>
+      // Recarrega dados
+      const matchFinal = await getMatch(match.id);
+      setMatch(matchFinal);
 
-            <select
-              value={novoEvento.tipo}
-              onChange={(e) =>
-                setNovoEvento({
-                  ...novoEvento,
-                  tipo: e.target.value as Evento["tipo"],
-                })
-              }
-              className="rounded-xl border border-zinc-700 bg-zinc-950 px-4 py-3"
-            >
-              <option value="GOL">⚽ Gol</option>
-              <option value="ASSISTENCIA">🎯 Assistência</option>
-              <option value="AMARELO">🟨 Amarelo</option>
-              <option value="VERMELHO">🟥 Vermelho</option>
-              <option value="LESAO">🤕 Lesão</option>
-              <option value="GOL_CONTRA">🔵 Gol contra</option>
-            </select>
+      alert("Partida encerrada com sucesso!");
+      setPartidaIniciada(false);
+      setEvents([]);
+    } catch (error) {
+      alert("Erro ao encerrar partida");
+      console.error(error);
+    } finally {
+      setFinalizando(false);
+    }
+  }
 
-            <input
-              value={novoEvento.jogador}
-              onChange={(e) =>
-                setNovoEvento({ ...novoEvento, jogador: e.target.value })
-              }
-              placeholder="Nome do jogador"
-              className="rounded-xl border border-zinc-700 bg-zinc-950 px-4 py-3"
-            />
-          </div>
-
+  if (!partida_iniciada) {
+    return (
+      <main className="min-h-screen bg-zinc-950 text-white flex items-center justify-center p-6">
+        <div className="text-center">
+          <h1 className="text-5xl font-black mb-4">Duelo Pe X Ne</h1>
+          <p className="text-zinc-400 mb-8 text-lg">
+            Clique no botão abaixo para iniciar uma nova partida
+          </p>
           <button
-            onClick={adicionarEvento}
-            className="mt-5 rounded-xl bg-white px-5 py-3 font-bold text-zinc-950 hover:bg-zinc-200"
+            onClick={iniciarPartida}
+            disabled={loading}
+            className="px-10 py-6 text-2xl font-black rounded-2xl bg-red-700 hover:bg-red-600 transition disabled:opacity-50"
           >
-            Adicionar evento
+            {loading ? "Iniciando..." : "▶ Iniciar Partida"}
           </button>
+        </div>
+      </main>
+    );
+  }
+
+  if (!match) return null;
+
+  return (
+    <main className="min-h-screen bg-zinc-950 text-white">
+      {/* Header com Placar */}
+      <div className="bg-zinc-900 border-b border-zinc-800 sticky top-0 z-40">
+        <div className="max-w-4xl mx-auto px-6 py-6">
+          <div className="flex items-center justify-between">
+            <div className="text-left">
+              <p className="text-xs uppercase tracking-widest text-zinc-500">
+                Jogo #{match.match_number}
+              </p>
+              <h1 className="text-3xl font-black mt-2">Placar</h1>
+            </div>
+
+            <div className="text-center">
+              <div className="text-6xl font-black">
+                <span className="text-red-400">{match.pedro_goals}</span>
+                <span className="text-zinc-500 mx-4">×</span>
+                <span className="text-green-400">{match.netu_goals}</span>
+              </div>
+              <p className="text-sm text-zinc-400 mt-2">
+                {match.winner === "" && "Empatado"}
+                {match.winner === "PEDRO" && "São Paulo na frente"}
+                {match.winner === "NETU" && "Palmeiras na frente"}
+              </p>
+            </div>
+
+            <button
+              onClick={() => setPartidaIniciada(false)}
+              className="text-sm text-zinc-400 hover:text-white transition"
+            >
+              ← Voltar
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Área Principal */}
+      <div className="max-w-4xl mx-auto px-6 py-8">
+        {/* Botões de Eventos */}
+        <section className="mb-8">
+          <h2 className="text-lg font-bold mb-4 text-zinc-300">Registrar Evento</h2>
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+            {(Object.entries(eventIcons) as Array<[EventType, typeof eventIcons[EventType]]>).map(
+              ([tipo, config]) => (
+                <button
+                  key={tipo}
+                  onClick={() => abrirEventoModal(tipo)}
+                  className={`${config.color} hover:opacity-90 transition rounded-xl p-4 font-bold text-white hover:scale-105`}
+                >
+                  <div className="text-2xl mb-1">{config.emoji}</div>
+                  <div className="text-sm">{config.label}</div>
+                </button>
+              )
+            )}
+          </div>
         </section>
 
-        <section className="mt-8 rounded-3xl border border-zinc-800 bg-zinc-900 p-6">
-          <h2 className="text-2xl font-black">Eventos da partida</h2>
-
-          <div className="mt-4 space-y-3">
-            {eventos.length === 0 && (
-              <p className="text-zinc-500">Nenhum evento adicionado ainda.</p>
+        {/* Lista de Eventos */}
+        <section className="mb-8">
+          <h2 className="text-lg font-bold mb-4 text-zinc-300">Eventos da Partida</h2>
+          <div className="space-y-2">
+            {events.length === 0 && (
+              <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-6 text-center text-zinc-500">
+                Nenhum evento registrado ainda
+              </div>
             )}
 
-            {eventos.map((evento, index) => (
-              <div
-                key={index}
-                className={`rounded-xl border px-4 py-3 ${
-                  evento.lado === "PEDRO"
-                    ? "border-red-900/60 bg-red-950/20"
-                    : "border-green-900/60 bg-green-950/20"
-                }`}
-              >
-                <strong>{evento.jogador}</strong>{" "}
-                <span className="text-zinc-400">
-                  — {evento.tipo} — {evento.lado === "PEDRO" ? "SPFC" : "SEP"}
-                </span>
-              </div>
-            ))}
+            {events.map((event) => {
+              const config = eventIcons[event.event_type as EventType];
+              return (
+                <div
+                  key={event.id}
+                  className={`rounded-xl border px-4 py-3 flex items-center gap-3 ${
+                    event.side === "PEDRO"
+                      ? "border-red-900/50 bg-red-950/30"
+                      : "border-green-900/50 bg-green-950/30"
+                  }`}
+                >
+                  <span className="text-2xl">{config.emoji}</span>
+                  <div className="flex-1">
+                    <p className="font-bold">{event.player_name_raw}</p>
+                    <p className="text-xs text-zinc-400">
+                      {config.label} · {event.side === "PEDRO" ? "SPFC" : "SEP"}
+                    </p>
+                  </div>
+                  <span className="text-xs text-zinc-500">
+                    {new Date(event.created_at).toLocaleTimeString("pt-BR", {
+                      hour: "2-digit",
+                      minute: "2-digit",
+                      second: "2-digit",
+                    })}
+                  </span>
+                </div>
+              );
+            })}
           </div>
         </section>
 
-        <button className="mt-8 w-full rounded-2xl bg-red-600 px-6 py-4 text-lg font-black hover:bg-red-500">
-          Salvar partida
-        </button>
+        {/* Botão de Encerramento */}
+        <section className="mb-8">
+          <button
+            onClick={encerrarPartida}
+            disabled={finalizando}
+            className="w-full rounded-xl bg-red-700 hover:bg-red-600 transition disabled:opacity-50 px-6 py-4 font-bold text-lg"
+          >
+            {finalizando ? "Encerrando..." : "🏁 Encerrar Partida"}
+          </button>
+        </section>
       </div>
+
+      {/* Modal de Evento */}
+      <EventModal
+        matchId={match.id}
+        eventType={selectedEventType}
+        open={modalOpen}
+        onClose={() => setModalOpen(false)}
+        onSaved={carregarEventos}
+      />
     </main>
   );
 }
