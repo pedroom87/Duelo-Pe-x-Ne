@@ -4,6 +4,14 @@ import { useState } from "react";
 import { createMatch } from "@/lib/matches";
 import GoalModal from "@/components/match/GoalModal";
 
+type EventType =
+  | "GOL"
+  | "ASSISTENCIA"
+  | "AMARELO"
+  | "VERMELHO"
+  | "LESAO"
+  | "GOL_CONTRA";
+
 export default function NovaPartida() {
   const [matchId, setMatchId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -12,6 +20,7 @@ export default function NovaPartida() {
   const [netuGoals, setNetuGoals] = useState(0);
 
   const [goalModalOpen, setGoalModalOpen] = useState(false);
+  const [selectedEventType, setSelectedEventType] = useState<EventType>("GOL");
 
   async function iniciarPartida() {
     try {
@@ -29,6 +38,11 @@ export default function NovaPartida() {
     } finally {
       setLoading(false);
     }
+  }
+
+  function abrirEventoModal(tipo: EventType) {
+    setSelectedEventType(tipo);
+    setGoalModalOpen(true);
   }
 
   async function atualizarPlacar() {
@@ -70,29 +84,44 @@ export default function NovaPartida() {
           <div className="mt-12 grid grid-cols-3 gap-5">
 
             <button
-              onClick={() => setGoalModalOpen(true)}
+              onClick={() => abrirEventoModal("GOL")}
               className="rounded-xl bg-zinc-800 p-8 text-5xl hover:bg-zinc-700"
             >
               ⚽
             </button>
 
-            <button className="rounded-xl bg-zinc-800 p-8 text-5xl hover:bg-zinc-700">
+            <button
+              onClick={() => abrirEventoModal("ASSISTENCIA")}
+              className="rounded-xl bg-zinc-800 p-8 text-5xl hover:bg-zinc-700"
+            >
               🎯
             </button>
 
-            <button className="rounded-xl bg-zinc-800 p-8 text-5xl hover:bg-zinc-700">
+            <button
+              onClick={() => abrirEventoModal("AMARELO")}
+              className="rounded-xl bg-zinc-800 p-8 text-5xl hover:bg-zinc-700"
+            >
               🟨
             </button>
 
-            <button className="rounded-xl bg-zinc-800 p-8 text-5xl hover:bg-zinc-700">
+            <button
+              onClick={() => abrirEventoModal("VERMELHO")}
+              className="rounded-xl bg-zinc-800 p-8 text-5xl hover:bg-zinc-700"
+            >
               🟥
             </button>
 
-            <button className="rounded-xl bg-zinc-800 p-8 text-5xl hover:bg-zinc-700">
+            <button
+              onClick={() => abrirEventoModal("LESAO")}
+              className="rounded-xl bg-zinc-800 p-8 text-5xl hover:bg-zinc-700"
+            >
               🤕
             </button>
 
-            <button className="rounded-xl bg-zinc-800 p-8 text-5xl hover:bg-zinc-700">
+            <button
+              onClick={() => abrirEventoModal("GOL_CONTRA")}
+              className="rounded-xl bg-zinc-800 p-8 text-5xl hover:bg-zinc-700"
+            >
               🔵
             </button>
 
@@ -128,6 +157,7 @@ export default function NovaPartida() {
 
         <GoalModal
           matchId={matchId}
+          eventType={selectedEventType}
           open={goalModalOpen}
           onClose={() => setGoalModalOpen(false)}
           onSaved={atualizarPlacar}
