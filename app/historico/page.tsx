@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import { deleteMatch } from "@/lib/matches";
 
@@ -131,6 +132,13 @@ export default function Historico() {
             >
               {deletando === match.id ? "Deletando..." : "🗑️ Excluir"}
             </button>
+
+            <Link
+              href={`/historico/${match.id}/editar`}
+              className="ml-2 rounded-xl bg-blue-900/30 border border-blue-700 px-4 py-2 text-blue-300 hover:bg-blue-900/50 transition"
+            >
+              ✏️ Editar
+            </Link>
           </div>
         ))}
       </section>
