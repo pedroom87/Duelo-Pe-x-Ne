@@ -6,6 +6,7 @@ import {
   getMatch,
   getMatchEvents,
   endMatch,
+  deleteMatch,
   type Match,
   type MatchEvent,
 } from "@/lib/matches";
@@ -67,6 +68,25 @@ export default function NovaPartida() {
     }
   }
 
+  async function voltarParaTelaInicial() {
+    if (!match) {
+      setPartidaIniciada(false);
+      return;
+    }
+
+    if (events.length === 0) {
+      try {
+        await deleteMatch(match.id);
+      } catch (error) {
+        console.error("Erro ao cancelar partida vazia:", error);
+      }
+    }
+
+    setMatch(null);
+    setEvents([]);
+    setPartidaIniciada(false);
+  }
+
   // Abre o modal para registrar evento
   function abrirEventoModal(tipo: EventType) {
     setSelectedEventType(tipo);
@@ -83,7 +103,6 @@ export default function NovaPartida() {
       setFinalizando(true);
       await endMatch(match.id);
 
-      // Recarrega dados
       const matchFinal = await getMatch(match.id);
       setMatch(matchFinal);
 
@@ -95,6 +114,26 @@ export default function NovaPartida() {
       console.error(error);
     } finally {
       setFinalizando(false);
+    }
+  }
+
+  async function cancelarPartida() {
+    if (!match) return;
+
+    if (!confirm("Cancelar a partida aberta? Ela será removida do histórico.")) return;
+
+    try {
+      setLoading(true);
+      await deleteMatch(match.id);
+      setMatch(null);
+      setEvents([]);
+      setPartidaIniciada(false);
+      alert("Partida cancelada com sucesso.");
+    } catch (error) {
+      alert("Erro ao cancelar partida");
+      console.error(error);
+    } finally {
+      setLoading(false);
     }
   }
 
@@ -147,7 +186,7 @@ export default function NovaPartida() {
             </div>
 
             <button
-              onClick={() => setPartidaIniciada(false)}
+              onClick={voltarParaTelaInicial}
               className="text-sm text-zinc-400 transition hover:text-white"
             >
               ← Voltar
@@ -218,8 +257,16 @@ export default function NovaPartida() {
           </div>
         </section>
 
-        {/* Botão de Encerramento */}
-        <section className="mb-8">
+        {/* Botões de Encerramento */}
+        <section className="mb-8 space-y-3">
+          <button
+            onClick={cancelarPartida}
+            disabled={loading}
+            className="w-full rounded-xl border border-zinc-700 bg-zinc-800 px-6 py-4 text-lg font-bold text-zinc-200 transition hover:bg-zinc-700 disabled:opacity-50 sm:py-5"
+          >
+            {loading ? "Cancelando..." : "↩️ Cancelar partida"}
+          </button>
+
           <button
             onClick={encerrarPartida}
             disabled={finalizando}
