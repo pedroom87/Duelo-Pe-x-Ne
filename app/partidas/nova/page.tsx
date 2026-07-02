@@ -100,16 +100,16 @@ export default function NovaPartida() {
 
   if (!partida_iniciada) {
     return (
-      <main className="min-h-screen bg-zinc-950 text-white flex items-center justify-center p-6">
-        <div className="text-center">
-          <h1 className="text-5xl font-black mb-4">Duelo Pe X Ne</h1>
-          <p className="text-zinc-400 mb-8 text-lg">
+      <main className="flex min-h-screen items-center justify-center bg-zinc-950 p-4 text-white sm:p-6">
+        <div className="w-full max-w-md text-center">
+          <h1 className="mb-4 text-4xl font-black sm:text-5xl">Duelo Pe X Ne</h1>
+          <p className="mb-8 text-base text-zinc-400 sm:text-lg">
             Clique no botão abaixo para iniciar uma nova partida
           </p>
           <button
             onClick={iniciarPartida}
             disabled={loading}
-            className="px-10 py-6 text-2xl font-black rounded-2xl bg-red-700 hover:bg-red-600 transition disabled:opacity-50"
+            className="w-full rounded-2xl bg-red-700 px-8 py-6 text-xl font-black transition hover:bg-red-600 disabled:opacity-50 sm:px-10 sm:py-6 sm:text-2xl"
           >
             {loading ? "Iniciando..." : "▶ Iniciar Partida"}
           </button>
@@ -121,25 +121,25 @@ export default function NovaPartida() {
   if (!match) return null;
 
   return (
-    <main className="min-h-screen bg-zinc-950 text-white">
+    <main className="min-h-screen bg-zinc-950 pb-24 text-white sm:pb-0">
       {/* Header com Placar */}
-      <div className="bg-zinc-900 border-b border-zinc-800 sticky top-0 z-40">
-        <div className="max-w-4xl mx-auto px-6 py-6">
-          <div className="flex items-center justify-between">
+      <div className="sticky top-0 z-40 border-b border-zinc-800 bg-zinc-900">
+        <div className="mx-auto max-w-4xl px-4 py-4 sm:px-6 sm:py-6">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <div className="text-left">
               <p className="text-xs uppercase tracking-widest text-zinc-500">
                 Jogo #{match.match_number}
               </p>
-              <h1 className="text-3xl font-black mt-2">Placar</h1>
+              <h1 className="mt-2 text-3xl font-black">Placar</h1>
             </div>
 
             <div className="text-center">
-              <div className="text-6xl font-black">
+              <div className="text-5xl font-black sm:text-6xl">
                 <span className="text-red-400">{match.pedro_goals}</span>
-                <span className="text-zinc-500 mx-4">×</span>
+                <span className="mx-4 text-zinc-500">×</span>
                 <span className="text-green-400">{match.netu_goals}</span>
               </div>
-              <p className="text-sm text-zinc-400 mt-2">
+              <p className="mt-2 text-sm text-zinc-400">
                 {match.winner === "" && "Empatado"}
                 {match.winner === "PEDRO" && "São Paulo na frente"}
                 {match.winner === "NETU" && "Palmeiras na frente"}
@@ -148,7 +148,7 @@ export default function NovaPartida() {
 
             <button
               onClick={() => setPartidaIniciada(false)}
-              className="text-sm text-zinc-400 hover:text-white transition"
+              className="text-sm text-zinc-400 transition hover:text-white"
             >
               ← Voltar
             </button>
@@ -157,17 +157,17 @@ export default function NovaPartida() {
       </div>
 
       {/* Área Principal */}
-      <div className="max-w-4xl mx-auto px-6 py-8">
+      <div className="mx-auto max-w-4xl px-4 py-6 sm:px-6 sm:py-8">
         {/* Botões de Eventos */}
         <section className="mb-8">
           <h2 className="text-lg font-bold mb-4 text-zinc-300">Registrar Evento</h2>
-          <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-3">
             {(Object.entries(eventIcons) as Array<[EventType, typeof eventIcons[EventType]]>).map(
               ([tipo, config]) => (
                 <button
                   key={tipo}
                   onClick={() => abrirEventoModal(tipo)}
-                  className={`${config.color} hover:opacity-90 transition rounded-xl p-4 font-bold text-white hover:scale-105`}
+                  className={`${config.color} rounded-xl p-4 text-base font-bold text-white transition hover:opacity-90 hover:scale-[1.01] sm:p-5 sm:text-lg`}
                 >
                   <div className="text-2xl mb-1">{config.emoji}</div>
                   <div className="text-sm">{config.label}</div>
@@ -223,7 +223,7 @@ export default function NovaPartida() {
           <button
             onClick={encerrarPartida}
             disabled={finalizando}
-            className="w-full rounded-xl bg-red-700 hover:bg-red-600 transition disabled:opacity-50 px-6 py-4 font-bold text-lg"
+            className="w-full rounded-xl bg-red-700 px-6 py-4 text-lg font-bold transition hover:bg-red-600 disabled:opacity-50 sm:py-5"
           >
             {finalizando ? "Encerrando..." : "🏁 Encerrar Partida"}
           </button>

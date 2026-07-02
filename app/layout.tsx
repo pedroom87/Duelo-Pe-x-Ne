@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import { Sidebar } from "@/components/layout/Sidebar";
+import { BottomNav } from "@/components/layout/BottomNav";
 
 export const metadata: Metadata = {
   title: "Duelo Pe X Ne",
@@ -16,9 +17,12 @@ export default function RootLayout({
     <html lang="pt-BR">
       <body>
         <div className="flex min-h-screen bg-zinc-950">
-          <Sidebar />
-          <div className="flex-1">{children}</div>
+          <div className="hidden lg:block">
+            <Sidebar />
+          </div>
+          <div className="flex-1 pb-20 lg:pb-0">{children}</div>
         </div>
+        <BottomNav />
       </body>
     </html>
   );

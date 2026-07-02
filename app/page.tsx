@@ -84,14 +84,14 @@ export default function Home() {
   ];
 
   return (
-    <main className="min-h-screen bg-zinc-950 text-white">
-      <section className="mx-auto flex min-h-screen max-w-6xl flex-col px-6 py-8">
-        <header className="mb-10 flex items-center justify-between">
+    <main className="min-h-screen bg-zinc-950 pb-24 text-white sm:pb-0">
+      <section className="mx-auto flex min-h-screen max-w-6xl flex-col px-4 py-6 sm:px-6 sm:py-8">
+        <header className="mb-8 flex flex-col gap-4 sm:mb-10 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <p className="text-sm uppercase tracking-[0.35em] text-zinc-400">
+            <p className="text-xs uppercase tracking-[0.35em] text-zinc-400 sm:text-sm">
               São Paulo x Palmeiras
             </p>
-            <h1 className="mt-2 text-4xl font-black tracking-tight">
+            <h1 className="mt-2 text-3xl font-black tracking-tight sm:text-4xl">
               Duelo Pe X Ne
             </h1>
           </div>
@@ -101,21 +101,21 @@ export default function Home() {
           </div>
         </header>
 
-        <section className="grid gap-6 md:grid-cols-2">
-          <div className="rounded-3xl border border-red-900/60 bg-red-950/30 p-8">
+        <section className="grid gap-4 sm:grid-cols-2">
+          <div className="rounded-3xl border border-red-900/60 bg-red-950/30 p-6 sm:p-8">
             <p className="text-sm font-bold uppercase text-red-300">Pedro</p>
-            <h2 className="mt-2 text-3xl font-black">São Paulo</h2>
+            <h2 className="mt-2 text-2xl font-black sm:text-3xl">São Paulo</h2>
             <p className="mt-4 text-zinc-300">Tricolor Paulista</p>
           </div>
 
-          <div className="rounded-3xl border border-green-900/60 bg-green-950/30 p-8">
+          <div className="rounded-3xl border border-green-900/60 bg-green-950/30 p-6 sm:p-8">
             <p className="text-sm font-bold uppercase text-green-300">Netu</p>
-            <h2 className="mt-2 text-3xl font-black">Palmeiras</h2>
+            <h2 className="mt-2 text-2xl font-black sm:text-3xl">Palmeiras</h2>
             <p className="mt-4 text-zinc-300">Alviverde Imponente</p>
           </div>
         </section>
 
-        <section className="mt-8 grid gap-4 md:grid-cols-4">
+        <section className="mt-8 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
           {[
             ["Jogos", loading ? "-" : stats.total],
             ["Vitórias Pedro", loading ? "-" : stats.pedroVitorias],
@@ -138,12 +138,12 @@ export default function Home() {
           </p>
         )}
 
-        <section className="mt-8 grid gap-4 md:grid-cols-4">
+        <section className="mt-8 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
           {navItems.map((item) => (
             <Link
               key={item.href}
               href={item.href}
-              className="rounded-2xl border border-zinc-800 bg-zinc-900 px-6 py-5 text-left font-bold transition hover:border-zinc-500 hover:bg-zinc-800"
+              className="rounded-2xl border border-zinc-800 bg-zinc-900 px-5 py-4 text-left font-bold transition hover:border-zinc-500 hover:bg-zinc-800"
             >
               {item.label}
             </Link>

@@ -40,14 +40,14 @@ export default async function Rankings() {
   }
 
   return (
-    <main className="min-h-screen bg-zinc-950 px-8 py-10 text-white">
-      <h1 className="text-4xl font-black">Rankings</h1>
+    <main className="min-h-screen bg-zinc-950 px-4 py-6 pb-24 text-white sm:px-8 sm:py-10 sm:pb-0">
+      <h1 className="text-3xl font-black sm:text-4xl">Rankings</h1>
 
-      <section className="mt-8 grid gap-6 lg:grid-cols-2">
+      <section className="mt-8 grid gap-4 lg:grid-cols-2">
         {tipos.map(([tipo, titulo]) => (
           <div
             key={tipo}
-            className="rounded-3xl border border-zinc-800 bg-zinc-900 p-6"
+            className="rounded-3xl border border-zinc-800 bg-zinc-900 p-4 sm:p-6"
           >
             <h2 className="text-2xl font-black">{titulo}</h2>
 

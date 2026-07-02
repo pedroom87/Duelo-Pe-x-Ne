@@ -69,8 +69,8 @@ export default function Historico() {
 
   if (loading) {
     return (
-      <main className="min-h-screen bg-zinc-950 px-8 py-10 text-white">
-        <h1 className="text-4xl font-black">Histórico</h1>
+      <main className="min-h-screen bg-zinc-950 px-4 py-6 pb-24 text-white sm:px-8 sm:py-10 sm:pb-0">
+        <h1 className="text-3xl font-black sm:text-4xl">Histórico</h1>
         <p className="mt-4 text-zinc-400">Carregando...</p>
       </main>
     );
@@ -78,16 +78,16 @@ export default function Historico() {
 
   if (error) {
     return (
-      <main className="min-h-screen bg-zinc-950 px-8 py-10 text-white">
-        <h1 className="text-4xl font-black">Histórico</h1>
+      <main className="min-h-screen bg-zinc-950 px-4 py-6 pb-24 text-white sm:px-8 sm:py-10 sm:pb-0">
+        <h1 className="text-3xl font-black sm:text-4xl">Histórico</h1>
         <p className="mt-4 text-red-400">{error}</p>
       </main>
     );
   }
 
   return (
-    <main className="min-h-screen bg-zinc-950 px-8 py-10 text-white">
-      <h1 className="text-4xl font-black">Histórico</h1>
+    <main className="min-h-screen bg-zinc-950 px-4 py-6 pb-24 text-white sm:px-8 sm:py-10 sm:pb-0">
+      <h1 className="text-3xl font-black sm:text-4xl">Histórico</h1>
       <p className="mt-2 text-zinc-400">
         {matches.length} partida{matches.length !== 1 ? "s" : ""} registrada{matches.length !== 1 ? "s" : ""}.
       </p>
@@ -102,20 +102,20 @@ export default function Historico() {
         {matches.map((match: Match) => (
           <div
             key={match.id}
-            className="rounded-2xl border border-zinc-800 bg-zinc-900 p-5 flex items-center justify-between"
+            className="rounded-2xl border border-zinc-800 bg-zinc-900 p-4 sm:p-5"
           >
             <div className="flex-1">
               <p className="text-sm text-zinc-500">
                 Jogo #{match.match_number}
               </p>
 
-              <div className="mt-2 flex items-center justify-between gap-4">
+              <div className="mt-2 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                   <p className="font-bold text-red-300">São Paulo / Pedro</p>
                   <p className="font-bold text-green-300">Palmeiras / Netu</p>
                 </div>
 
-                <div className="text-right text-3xl font-black">
+                <div className="text-3xl font-black sm:text-right">
                   {match.pedro_goals} × {match.netu_goals}
                 </div>
               </div>
@@ -125,20 +125,22 @@ export default function Historico() {
               </p>
             </div>
 
-            <button
-              onClick={() => excluirPartida(match.id, match.match_number)}
-              disabled={deletando === match.id}
-              className="ml-4 rounded-xl bg-red-900/30 border border-red-700 px-4 py-2 text-red-300 hover:bg-red-900/50 transition disabled:opacity-50"
-            >
-              {deletando === match.id ? "Deletando..." : "🗑️ Excluir"}
-            </button>
+            <div className="mt-4 flex flex-col gap-2 sm:ml-4 sm:flex-row">
+              <button
+                onClick={() => excluirPartida(match.id, match.match_number)}
+                disabled={deletando === match.id}
+                className="rounded-xl border border-red-700 bg-red-900/30 px-4 py-2 text-red-300 transition hover:bg-red-900/50 disabled:opacity-50"
+              >
+                {deletando === match.id ? "Deletando..." : "🗑️ Excluir"}
+              </button>
 
-            <Link
-              href={`/historico/${match.id}/editar`}
-              className="ml-2 rounded-xl bg-blue-900/30 border border-blue-700 px-4 py-2 text-blue-300 hover:bg-blue-900/50 transition"
-            >
-              ✏️ Editar
-            </Link>
+              <Link
+                href={`/historico/${match.id}/editar`}
+                className="rounded-xl border border-blue-700 bg-blue-900/30 px-4 py-2 text-center text-blue-300 transition hover:bg-blue-900/50"
+              >
+                ✏️ Editar
+              </Link>
+            </div>
           </div>
         ))}
       </section>
