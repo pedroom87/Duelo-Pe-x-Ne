@@ -58,8 +58,16 @@ function normalizeText(value: string) {
 
 function getDisplayName(
   event: EventRecord,
-  playersById: Map<string, PlayerRecord>
+  playersById: Map<string, PlayerRecord>,
+  resolvedPlayerId: string | null
 ) {
+  if (resolvedPlayerId) {
+    const officialPlayer = playersById.get(resolvedPlayerId);
+    if (officialPlayer?.name) {
+      return officialPlayer.name;
+    }
+  }
+
   if (event.player_id) {
     const officialPlayer = playersById.get(event.player_id);
     if (officialPlayer?.name) {
@@ -68,6 +76,44 @@ function getDisplayName(
   }
 
   return event.player_name_raw?.trim() || "Jogador sem nome";
+}
+
+function resolvePlayerId(
+  event: EventRecord,
+  playersById: Map<string, PlayerRecord>,
+  aliasesByNormalized: Map<string, string>
+) {
+  if (event.player_id) {
+    return event.player_id;
+  }
+
+  const normalizedName = normalizeText(event.player_name_raw || "");
+  if (!normalizedName) {
+    return null;
+  }
+
+  const aliasMatch = aliasesByNormalized.get(normalizedName);
+  if (aliasMatch) {
+    return aliasMatch;
+  }
+
+  const officialMatch = Array.from(playersById.values()).find((player) => {
+    if (normalizeText(player.name) !== normalizedName) {
+      return false;
+    }
+
+    return player.side === event.side;
+  });
+
+  if (officialMatch) {
+    return officialMatch.id;
+  }
+
+  const fallbackMatch = Array.from(playersById.values()).find((player) => {
+    return normalizeText(player.name) === normalizedName;
+  });
+
+  return fallbackMatch?.id ?? null;
 }
 
 export async function getRankings() {
@@ -118,9 +164,7 @@ export async function getRankings() {
       return;
     }
 
-    const resolvedPlayerId = event.player_id
-      ? event.player_id
-      : aliasesByNormalized.get(normalizeText(event.player_name_raw || ""));
+    const resolvedPlayerId = resolvePlayerId(event, playersById, aliasesByNormalized);
 
     const key = resolvedPlayerId
       ? `player:${resolvedPlayerId}`
@@ -130,7 +174,7 @@ export async function getRankings() {
     const current = currentMap.get(key) ?? {
       key,
       playerId: event.player_id,
-      displayName: getDisplayName(event, playersById),
+      displayName: getDisplayName(event, playersById, resolvedPlayerId),
       side: event.side,
       total: 0,
     };
