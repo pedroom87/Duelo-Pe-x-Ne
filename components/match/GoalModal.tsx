@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { getPlayers, createPlayer } from "@/lib/players";
+import { getPlayersWithRecentUsage, createPlayer } from "@/lib/players";
 import {
   addGoal,
   addAssist,
@@ -60,16 +60,21 @@ export default function EventModal({
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    getPlayers().then((p) => setPlayers(p));
-  }, []);
+    if (!open) return;
+
+    getPlayersWithRecentUsage().then((p) => setPlayers(p));
+  }, [open]);
 
   if (!open) return null;
 
-  const filtered = players.filter(
-    (p) =>
-      p.side === side &&
-      p.name.toLowerCase().includes(search.toLowerCase())
-  );
+  const normalizedSearch = search.trim().toLowerCase();
+
+  const filtered = players
+    .filter((p) => p.side === side)
+    .filter((p) => {
+      if (!normalizedSearch) return true;
+      return p.name.toLowerCase().includes(normalizedSearch);
+    });
 
   const config = eventConfig[eventType];
 
