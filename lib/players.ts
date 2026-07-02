@@ -1,3 +1,4 @@
+import { normalizeText } from "./playerIdentity";
 import { supabase } from "./supabase";
 
 export interface Player {
@@ -5,6 +6,17 @@ export interface Player {
   name: string;
   side: string;
 }
+
+export type PlayerAlias = {
+  id: string;
+  player_id: string;
+  alias: string;
+  normalized_alias: string;
+};
+
+export type PlayerWithAliases = Player & {
+  aliases: PlayerAlias[];
+};
 
 type PlayerUsageEvent = {
   player_id: string | null;
@@ -18,14 +30,6 @@ type PlayerAliasSearchResult = {
   player_id: string;
   players: Player | Player[] | null;
 };
-
-function normalizeText(value: string) {
-  return value
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toLowerCase()
-    .trim();
-}
 
 function getAliasPlayer(alias: PlayerAliasSearchResult) {
   if (Array.isArray(alias.players)) {
@@ -44,6 +48,31 @@ export async function getPlayers() {
   if (error) throw error;
 
   return data as Player[];
+}
+
+export async function getPlayersWithAliases(): Promise<PlayerWithAliases[]> {
+  const [{ data: players, error: playersError }, { data: aliases, error: aliasesError }] =
+    await Promise.all([
+      supabase.from("players").select("*").order("name"),
+      supabase.from("player_aliases").select("*").order("alias"),
+    ]);
+
+  if (playersError) throw playersError;
+  if (aliasesError) throw aliasesError;
+
+  const aliasList = (aliases ?? []) as PlayerAlias[];
+  const aliasesByPlayerId = new Map<string, PlayerAlias[]>();
+
+  aliasList.forEach((alias) => {
+    const current = aliasesByPlayerId.get(alias.player_id) ?? [];
+    current.push(alias);
+    aliasesByPlayerId.set(alias.player_id, current);
+  });
+
+  return ((players ?? []) as Player[]).map((player) => ({
+    ...player,
+    aliases: aliasesByPlayerId.get(player.id) ?? [],
+  }));
 }
 
 export async function getPlayersWithRecentUsage() {

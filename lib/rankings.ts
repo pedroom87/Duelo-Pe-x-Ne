@@ -1,3 +1,10 @@
+import {
+  buildPlayerIdentityIndex,
+  normalizeText,
+  resolvePlayerIdForEvent,
+  type AliasIdentity,
+  type PlayerIdentity,
+} from "./playerIdentity";
 import { supabase } from "./supabase";
 
 export type RankingEventType =
@@ -26,19 +33,6 @@ type EventRecord = {
   event_type: string;
 };
 
-type PlayerRecord = {
-  id: string;
-  name: string;
-  side: string;
-};
-
-type AliasRecord = {
-  id: string;
-  player_id: string;
-  alias: string;
-  normalized_alias: string;
-};
-
 const rankingTypes: RankingEventType[] = [
   "GOL",
   "ASSISTENCIA",
@@ -48,17 +42,9 @@ const rankingTypes: RankingEventType[] = [
   "GOL_CONTRA",
 ];
 
-function normalizeText(value: string) {
-  return value
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toLowerCase()
-    .trim();
-}
-
 function getDisplayName(
   event: EventRecord,
-  playersById: Map<string, PlayerRecord>,
+  playersById: Map<string, PlayerIdentity>,
   resolvedPlayerId: string | null
 ) {
   if (resolvedPlayerId) {
@@ -78,42 +64,20 @@ function getDisplayName(
   return event.player_name_raw?.trim() || "Jogador sem nome";
 }
 
-function resolvePlayerId(
+function getRankingSide(
   event: EventRecord,
-  playersById: Map<string, PlayerRecord>,
-  aliasesByNormalized: Map<string, string>
-) {
-  if (event.player_id) {
-    return event.player_id;
+  playersById: Map<string, PlayerIdentity>,
+  resolvedPlayerId: string | null
+): "PEDRO" | "NETU" {
+  const officialSide = resolvedPlayerId
+    ? playersById.get(resolvedPlayerId)?.side
+    : null;
+
+  if (officialSide === "PEDRO" || officialSide === "NETU") {
+    return officialSide;
   }
 
-  const normalizedName = normalizeText(event.player_name_raw || "");
-  if (!normalizedName) {
-    return null;
-  }
-
-  const aliasMatch = aliasesByNormalized.get(normalizedName);
-  if (aliasMatch) {
-    return aliasMatch;
-  }
-
-  const officialMatch = Array.from(playersById.values()).find((player) => {
-    if (normalizeText(player.name) !== normalizedName) {
-      return false;
-    }
-
-    return player.side === event.side;
-  });
-
-  if (officialMatch) {
-    return officialMatch.id;
-  }
-
-  const fallbackMatch = Array.from(playersById.values()).find((player) => {
-    return normalizeText(player.name) === normalizedName;
-  });
-
-  return fallbackMatch?.id ?? null;
+  return event.side;
 }
 
 export async function getRankings() {
@@ -143,28 +107,23 @@ export async function getRankings() {
     throw aliasesError;
   }
 
-  const playersById = new Map<string, PlayerRecord>();
-  (players ?? []).forEach((player) => {
-    playersById.set(player.id, player as PlayerRecord);
-  });
-
-  const aliasesByNormalized = new Map<string, string>();
-  (aliases ?? []).forEach((alias) => {
-    aliasesByNormalized.set(alias.normalized_alias, alias.player_id);
-  });
+  const index = buildPlayerIdentityIndex(
+    (players ?? []) as PlayerIdentity[],
+    (aliases ?? []) as AliasIdentity[]
+  );
 
   const rankingMap = Object.fromEntries(
     rankingTypes.map((type) => [type, new Map<string, RankingEntry>()])
   ) as Record<RankingEventType, Map<string, RankingEntry>>;
 
-  (events ?? []).forEach((event) => {
+  ((events ?? []) as EventRecord[]).forEach((event) => {
     const eventType = event.event_type as RankingEventType;
 
     if (!rankingTypes.includes(eventType)) {
       return;
     }
 
-    const resolvedPlayerId = resolvePlayerId(event, playersById, aliasesByNormalized);
+    const resolvedPlayerId = resolvePlayerIdForEvent(event, index);
 
     const key = resolvedPlayerId
       ? `player:${resolvedPlayerId}`
@@ -174,8 +133,8 @@ export async function getRankings() {
     const current = currentMap.get(key) ?? {
       key,
       playerId: resolvedPlayerId,
-      displayName: getDisplayName(event, playersById, resolvedPlayerId),
-      side: event.side,
+      displayName: getDisplayName(event, index.playersById, resolvedPlayerId),
+      side: getRankingSide(event, index.playersById, resolvedPlayerId),
       total: 0,
     };
 

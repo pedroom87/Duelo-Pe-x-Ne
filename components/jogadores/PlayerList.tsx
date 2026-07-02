@@ -1,88 +1,89 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { addAlias, getAliases, mergePlayers } from "@/lib/playerAliases";
-
-type Player = {
-  id: string;
-  name: string;
-  side: string;
-};
-
-type AliasRecord = {
-  id: string;
-  alias: string;
-  normalized_alias: string;
-};
+import { useMemo, useState } from "react";
+import type { PlayerAlias, PlayerWithAliases } from "@/lib/players";
+import {
+  addAlias,
+  getAliases,
+  mergePlayers,
+  recalculateEventPlayerIds,
+} from "@/lib/playerAliases";
 
 interface Props {
-  players: Player[];
+  players: PlayerWithAliases[];
+}
+
+function getSideLabel(side: string) {
+  return side === "PEDRO" ? "São Paulo" : "Palmeiras";
+}
+
+function getSideShort(side: string) {
+  return side === "PEDRO" ? "SPFC" : "SEP";
+}
+
+function buildAliasState(players: PlayerWithAliases[]) {
+  return Object.fromEntries(
+    players.map((player) => [player.id, player.aliases])
+  ) as Record<string, PlayerAlias[]>;
+}
+
+function sortAliases(aliases: PlayerAlias[]) {
+  return [...aliases].sort((a, b) => a.alias.localeCompare(b.alias));
 }
 
 export default function PlayerList({ players }: Props) {
-  const [playerList, setPlayerList] = useState<Player[]>(players);
+  const [playerList, setPlayerList] = useState<PlayerWithAliases[]>(players);
+  const [aliasesByPlayerId, setAliasesByPlayerId] = useState(buildAliasState(players));
   const [search, setSearch] = useState("");
-  const [aliases, setAliases] = useState<Record<string, AliasRecord[]>>({});
   const [drafts, setDrafts] = useState<Record<string, string>>({});
-  const [loading, setLoading] = useState<Record<string, boolean>>({});
-  const [feedback, setFeedback] = useState<Record<string, string>>({});
-  const [managedPlayerId, setManagedPlayerId] = useState<string | null>(null);
-  const [mergeSourceId, setMergeSourceId] = useState("");
-  const [mergeTargetId, setMergeTargetId] = useState("");
-  const [deleteSourcePlayer, setDeleteSourcePlayer] = useState(false);
+  const [aliasLoadingId, setAliasLoadingId] = useState<string | null>(null);
+  const [mergeSourceId, setMergeSourceId] = useState(players[0]?.id ?? "");
+  const [mergeTargetId, setMergeTargetId] = useState(players[1]?.id ?? "");
   const [mergeLoading, setMergeLoading] = useState(false);
-
-  useEffect(() => {
-    setPlayerList(players);
-  }, [players]);
+  const [recalculateLoading, setRecalculateLoading] = useState(false);
+  const [feedback, setFeedback] = useState<string | null>(null);
 
   const filtered = useMemo(() => {
-    if (!search) return playerList;
+    const term = search.trim().toLowerCase();
+    if (!term) return playerList;
 
-    return playerList.filter((player) =>
-      player.name.toLowerCase().includes(search.toLowerCase())
-    );
-  }, [playerList, search]);
+    return playerList.filter((player) => {
+      const aliases = aliasesByPlayerId[player.id] ?? [];
 
-  async function carregarAliases(playerId: string) {
-    if (aliases[playerId]) return;
-
-    const data = await getAliases(playerId);
-    setAliases((current) => ({ ...current, [playerId]: data as AliasRecord[] }));
-  }
+      return (
+        player.name.toLowerCase().includes(term) ||
+        aliases.some((alias) => alias.alias.toLowerCase().includes(term))
+      );
+    });
+  }, [aliasesByPlayerId, playerList, search]);
 
   async function salvarAlias(playerId: string) {
     const alias = (drafts[playerId] || "").trim();
     if (!alias) return;
 
     try {
-      setLoading((current) => ({ ...current, [playerId]: true }));
-      await addAlias(playerId, alias);
+      setAliasLoadingId(playerId);
+      const savedAlias = await addAlias(playerId, alias);
+
       setDrafts((current) => ({ ...current, [playerId]: "" }));
-      setAliases((current) => ({
-        ...current,
-        [playerId]: [
-          ...(current[playerId] || []),
-          { id: `${playerId}-${alias}`, alias, normalized_alias: alias.toLowerCase() },
-        ],
-      }));
-      setFeedback((current) => ({ ...current, [playerId]: "Alias adicionado." }));
+      setAliasesByPlayerId((current) => {
+        const currentAliases = current[playerId] ?? [];
+        const nextAliases = currentAliases.some((item) => item.id === savedAlias.id)
+          ? currentAliases
+          : sortAliases([...currentAliases, savedAlias]);
+
+        return {
+          ...current,
+          [playerId]: nextAliases,
+        };
+      });
+      setFeedback("Alias salvo.");
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : "Erro ao salvar alias.";
-      setFeedback((current) => ({ ...current, [playerId]: message }));
+      setFeedback(message);
     } finally {
-      setLoading((current) => ({ ...current, [playerId]: false }));
+      setAliasLoadingId(null);
     }
-  }
-
-  async function abrirGerenciamento(player: Player) {
-    setManagedPlayerId(player.id);
-    setMergeSourceId(player.id);
-
-    const otherPlayer = playerList.find((candidate) => candidate.id !== player.id);
-    setMergeTargetId(otherPlayer?.id ?? "");
-    setDeleteSourcePlayer(false);
-    await carregarAliases(player.id);
   }
 
   async function handleMergePlayers() {
@@ -98,175 +99,213 @@ export default function PlayerList({ players }: Props) {
 
     try {
       setMergeLoading(true);
-      await mergePlayers({
+      const result = await mergePlayers({
         sourcePlayerId: mergeSourceId,
         targetPlayerId: mergeTargetId,
-        deleteSourcePlayer,
+      });
+      const targetAliases = await getAliases(mergeTargetId);
+
+      setAliasesByPlayerId((current) => {
+        const next = {
+          ...current,
+          [mergeTargetId]: targetAliases,
+        };
+
+        if (result.deletedSourcePlayer) {
+          delete next[mergeSourceId];
+        }
+
+        return next;
       });
 
-      setFeedback((current) => ({ ...current, [target.id]: "Jogadores mesclados com sucesso." }));
-      setManagedPlayerId(target.id);
-      setMergeSourceId(target.id);
-      setMergeTargetId(target.id);
-
-      if (deleteSourcePlayer) {
-        setPlayerList((current) => current.filter((player) => player.id !== source.id));
+      if (result.deletedSourcePlayer) {
+        setPlayerList((current) =>
+          current.filter((player) => player.id !== mergeSourceId)
+        );
+        setMergeSourceId(mergeTargetId);
+        const nextTarget = playerList.find(
+          (player) => player.id !== mergeTargetId && player.id !== mergeSourceId
+        );
+        setMergeTargetId(nextTarget?.id ?? "");
       }
 
-      await carregarAliases(target.id);
+      setFeedback(
+        `Mesclagem concluída: ${result.updatedEvents} evento(s), ${result.transferredAliases} alias(es).`
+      );
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : "Erro ao mesclar jogadores.";
-      setFeedback((current) => ({ ...current, [target.id]: message }));
+      setFeedback(message);
     } finally {
       setMergeLoading(false);
     }
   }
 
-  return (
-    <>
-      <input
-        value={search}
-        onChange={(e) => setSearch(e.target.value)}
-        placeholder="Pesquisar jogador..."
-        className="mb-6 w-full rounded-xl border border-zinc-700 bg-zinc-900 p-4"
-      />
+  async function handleRecalculateRankings() {
+    try {
+      setRecalculateLoading(true);
+      const result = await recalculateEventPlayerIds();
+      setFeedback(
+        `Recálculo concluído: ${result.updatedEvents}/${result.processedEvents} evento(s) atualizados, ${result.unresolvedEvents} sem vínculo.`
+      );
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "Erro ao recalcular rankings.";
+      setFeedback(message);
+    } finally {
+      setRecalculateLoading(false);
+    }
+  }
 
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+  return (
+    <div className="space-y-6">
+      <div className="grid gap-3 lg:grid-cols-[1fr_auto]">
+        <input
+          value={search}
+          onChange={(event) => setSearch(event.target.value)}
+          placeholder="Pesquisar jogador ou alias..."
+          className="w-full rounded-xl border border-zinc-700 bg-zinc-900 p-4"
+        />
+
+        <button
+          type="button"
+          onClick={handleRecalculateRankings}
+          disabled={recalculateLoading}
+          className="rounded-xl border border-blue-700 bg-blue-900/40 px-5 py-4 font-bold text-blue-200 transition hover:bg-blue-900/60 disabled:opacity-50"
+        >
+          {recalculateLoading ? "Recalculando..." : "Recalcular Rankings"}
+        </button>
+      </div>
+
+      <section className="rounded-2xl border border-zinc-800 bg-zinc-900 p-4 sm:p-5">
+        <h2 className="text-xl font-black">Mesclar jogadores</h2>
+
+        <div className="mt-4 grid gap-3 lg:grid-cols-[1fr_1fr_auto]">
+          <label className="block text-sm text-zinc-300">
+            Origem
+            <select
+              value={mergeSourceId}
+              onChange={(event) => setMergeSourceId(event.target.value)}
+              className="mt-1 w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-3"
+            >
+              {playerList.map((player) => (
+                <option key={player.id} value={player.id}>
+                  {player.name} - {getSideShort(player.side)}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label className="block text-sm text-zinc-300">
+            Destino
+            <select
+              value={mergeTargetId}
+              onChange={(event) => setMergeTargetId(event.target.value)}
+              className="mt-1 w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-3"
+            >
+              {playerList.map((player) => (
+                <option key={player.id} value={player.id}>
+                  {player.name} - {getSideShort(player.side)}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <button
+            type="button"
+            onClick={handleMergePlayers}
+            disabled={
+              mergeLoading ||
+              !mergeSourceId ||
+              !mergeTargetId ||
+              mergeSourceId === mergeTargetId
+            }
+            className="self-end rounded-lg bg-zinc-800 px-5 py-3 font-bold text-zinc-100 transition hover:bg-zinc-700 disabled:opacity-50"
+          >
+            {mergeLoading ? "Mesclando..." : "Mesclar"}
+          </button>
+        </div>
+      </section>
+
+      {feedback ? (
+        <p className="rounded-xl border border-zinc-800 bg-zinc-900 px-4 py-3 text-sm text-zinc-300">
+          {feedback}
+        </p>
+      ) : null}
+
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
         {filtered.map((player) => {
-          const isManaged = managedPlayerId === player.id;
+          const aliases = aliasesByPlayerId[player.id] ?? [];
 
           return (
             <div
               key={player.id}
-              className={`rounded-2xl border p-5 transition hover:scale-[1.02] ${
+              className={`rounded-2xl border p-5 ${
                 player.side === "PEDRO"
                   ? "border-red-700 bg-red-950/20"
                   : "border-green-700 bg-green-950/20"
               }`}
             >
-              <h2 className="text-xl font-bold">{player.name}</h2>
-
-              <p className="mt-1 text-sm text-zinc-400">
-                {player.side === "PEDRO" ? "São Paulo" : "Palmeiras"}
-              </p>
-
-              <button
-                type="button"
-                onClick={() => abrirGerenciamento(player)}
-                className="mt-4 text-sm font-semibold text-blue-300"
-              >
-                Gerenciar
-              </button>
-
-              {isManaged ? (
-                <div className="mt-4 space-y-4 rounded-xl border border-zinc-700 bg-zinc-950/70 p-4">
-                  <div>
-                    <p className="text-xs uppercase tracking-[0.2em] text-zinc-500">Nome oficial</p>
-                    <p className="mt-1 font-semibold">{player.name}</p>
-                  </div>
-
-                  <div>
-                    <p className="text-xs uppercase tracking-[0.2em] text-zinc-500">Time</p>
-                    <p className="mt-1 font-semibold">
-                      {player.side === "PEDRO" ? "São Paulo" : "Palmeiras"}
-                    </p>
-                  </div>
-
-                  <div>
-                    <p className="text-xs uppercase tracking-[0.2em] text-zinc-500">Aliases</p>
-                    <div className="mt-2 space-y-2">
-                      {(aliases[player.id] || []).length === 0 ? (
-                        <p className="text-sm text-zinc-500">Nenhum alias cadastrado.</p>
-                      ) : (
-                        aliases[player.id].map((alias) => (
-                          <div key={alias.id} className="rounded-lg border border-zinc-700 bg-zinc-900/80 px-3 py-2 text-sm">
-                            {alias.alias}
-                          </div>
-                        ))
-                      )}
-                    </div>
-                  </div>
-
-                  <div className="flex gap-2">
-                    <input
-                      value={drafts[player.id] || ""}
-                      onChange={(e) => setDrafts((current) => ({ ...current, [player.id]: e.target.value }))}
-                      placeholder="Novo alias"
-                      className="flex-1 rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => salvarAlias(player.id)}
-                      disabled={loading[player.id]}
-                      className="rounded-lg bg-zinc-800 px-3 py-2 text-sm font-semibold"
-                    >
-                      {loading[player.id] ? "..." : "Salvar"}
-                    </button>
-                  </div>
-
-                  <div className="rounded-lg border border-zinc-700 bg-zinc-900/80 p-3">
-                    <p className="text-sm font-semibold">Mesclar jogador</p>
-
-                    <div className="mt-3 space-y-2">
-                      <label className="block text-sm text-zinc-300">
-                        Origem
-                        <select
-                          value={mergeSourceId}
-                          onChange={(e) => setMergeSourceId(e.target.value)}
-                          className="mt-1 w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm"
-                        >
-                          {playerList.map((candidate) => (
-                            <option key={candidate.id} value={candidate.id}>
-                              {candidate.name}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-
-                      <label className="block text-sm text-zinc-300">
-                        Destino
-                        <select
-                          value={mergeTargetId}
-                          onChange={(e) => setMergeTargetId(e.target.value)}
-                          className="mt-1 w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm"
-                        >
-                          {playerList.map((candidate) => (
-                            <option key={candidate.id} value={candidate.id}>
-                              {candidate.name}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-
-                      <label className="flex items-center gap-2 text-sm text-zinc-300">
-                        <input
-                          type="checkbox"
-                          checked={deleteSourcePlayer}
-                          onChange={(e) => setDeleteSourcePlayer(e.target.checked)}
-                        />
-                        Excluir jogador origem se não houver mais eventos
-                      </label>
-
-                      <button
-                        type="button"
-                        onClick={handleMergePlayers}
-                        disabled={mergeLoading || !mergeSourceId || !mergeTargetId || mergeSourceId === mergeTargetId}
-                        className="w-full rounded-lg bg-blue-900/40 px-3 py-2 text-sm font-semibold text-blue-300 disabled:opacity-50"
-                      >
-                        {mergeLoading ? "Mesclando..." : "Mesclar jogadores"}
-                      </button>
-                    </div>
-                  </div>
-
-                  {feedback[player.id] ? (
-                    <p className="text-xs text-zinc-400">{feedback[player.id]}</p>
-                  ) : null}
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-xs uppercase tracking-[0.2em] text-zinc-500">
+                    Nome oficial
+                  </p>
+                  <h2 className="mt-1 text-xl font-bold">{player.name}</h2>
                 </div>
-              ) : null}
+
+                <span className="rounded-full border border-zinc-700 bg-zinc-900 px-3 py-1 text-xs font-bold text-zinc-300">
+                  {getSideShort(player.side)}
+                </span>
+              </div>
+
+              <p className="mt-2 text-sm text-zinc-400">{getSideLabel(player.side)}</p>
+
+              <div className="mt-5">
+                <p className="text-xs uppercase tracking-[0.2em] text-zinc-500">
+                  Aliases
+                </p>
+
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {aliases.length === 0 ? (
+                    <span className="text-sm text-zinc-500">Nenhum alias</span>
+                  ) : (
+                    aliases.map((alias) => (
+                      <span
+                        key={alias.id}
+                        className="rounded-full border border-zinc-700 bg-zinc-900 px-3 py-1 text-sm text-zinc-300"
+                      >
+                        {alias.alias}
+                      </span>
+                    ))
+                  )}
+                </div>
+              </div>
+
+              <div className="mt-5 flex gap-2">
+                <input
+                  value={drafts[player.id] || ""}
+                  onChange={(event) =>
+                    setDrafts((current) => ({
+                      ...current,
+                      [player.id]: event.target.value,
+                    }))
+                  }
+                  placeholder="Novo alias"
+                  className="min-w-0 flex-1 rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-3 text-sm"
+                />
+
+                <button
+                  type="button"
+                  onClick={() => salvarAlias(player.id)}
+                  disabled={aliasLoadingId === player.id}
+                  className="rounded-lg bg-zinc-800 px-4 py-3 text-sm font-bold text-zinc-100 transition hover:bg-zinc-700 disabled:opacity-50"
+                >
+                  {aliasLoadingId === player.id ? "..." : "Salvar"}
+                </button>
+              </div>
             </div>
           );
         })}
       </div>
-    </>
+    </div>
   );
 }

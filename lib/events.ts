@@ -19,7 +19,8 @@ export async function addEvent(
   matchId: string,
   playerName: string,
   side: Side,
-  eventType: EventType
+  eventType: EventType,
+  playerId?: string
 ) {
   // 1. Busca a partida para obter match_number
   const { data: match, error: matchError } = await supabase
@@ -52,6 +53,7 @@ export async function addEvent(
     match_id: matchId,
     match_number: match.match_number,
     seq: newSeq,
+    player_id: playerId ?? null,
     player_name_raw: playerName,
     side,
     event_type: eventType,
@@ -66,9 +68,10 @@ export async function addEvent(
 export async function addGoal(
   matchId: string,
   playerName: string,
-  side: Side
+  side: Side,
+  playerId?: string
 ) {
-  return addEvent(matchId, playerName, side, "GOL");
+  return addEvent(matchId, playerName, side, "GOL", playerId);
 }
 
 /**
@@ -77,9 +80,10 @@ export async function addGoal(
 export async function addAssist(
   matchId: string,
   playerName: string,
-  side: Side
+  side: Side,
+  playerId?: string
 ) {
-  return addEvent(matchId, playerName, side, "ASSISTENCIA");
+  return addEvent(matchId, playerName, side, "ASSISTENCIA", playerId);
 }
 
 /**
@@ -88,9 +92,10 @@ export async function addAssist(
 export async function addYellowCard(
   matchId: string,
   playerName: string,
-  side: Side
+  side: Side,
+  playerId?: string
 ) {
-  return addEvent(matchId, playerName, side, "AMARELO");
+  return addEvent(matchId, playerName, side, "AMARELO", playerId);
 }
 
 /**
@@ -99,9 +104,10 @@ export async function addYellowCard(
 export async function addRedCard(
   matchId: string,
   playerName: string,
-  side: Side
+  side: Side,
+  playerId?: string
 ) {
-  return addEvent(matchId, playerName, side, "VERMELHO");
+  return addEvent(matchId, playerName, side, "VERMELHO", playerId);
 }
 
 /**
@@ -110,9 +116,10 @@ export async function addRedCard(
 export async function addInjury(
   matchId: string,
   playerName: string,
-  side: Side
+  side: Side,
+  playerId?: string
 ) {
-  return addEvent(matchId, playerName, side, "LESAO");
+  return addEvent(matchId, playerName, side, "LESAO", playerId);
 }
 
 /**
@@ -121,7 +128,8 @@ export async function addInjury(
 export async function addOwnGoal(
   matchId: string,
   playerName: string,
-  side: Side
+  side: Side,
+  playerId?: string
 ) {
-  return addEvent(matchId, playerName, side, "GOL_CONTRA");
+  return addEvent(matchId, playerName, side, "GOL_CONTRA", playerId);
 }

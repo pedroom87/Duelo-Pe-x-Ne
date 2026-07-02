@@ -6,6 +6,7 @@ const items = [
   ["📖", "Histórico", "/historico"],
   ["🏆", "Rankings", "/rankings"],
   ["🟨", "Disciplina", "/disciplina"],
+  ["👥", "Jogadores", "/jogadores"],
   ["📥", "Importar Histórico", "/importar-historico"],
 ];
 

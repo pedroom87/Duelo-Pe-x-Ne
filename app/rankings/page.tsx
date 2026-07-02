@@ -1,19 +1,23 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { getRankings } from "@/lib/rankings";
+import {
+  getRankings,
+  type RankingEventType,
+  type RankingSnapshot,
+} from "@/lib/rankings";
 
-const tipos = [
-  ["GOL", "⚽ Artilharia"],
-  ["ASSISTENCIA", "🎯 Assistências"],
-  ["AMARELO", "🟨 Amarelos"],
-  ["VERMELHO", "🟥 Vermelhos"],
-  ["LESAO", "🤕 Lesões"],
-  ["GOL_CONTRA", "🔵 Gols contra"],
+const tipos: Array<[RankingEventType, string]> = [
+  ["GOL", "Artilharia"],
+  ["ASSISTENCIA", "Assistências"],
+  ["AMARELO", "Amarelos"],
+  ["VERMELHO", "Vermelhos"],
+  ["LESAO", "Lesões"],
+  ["GOL_CONTRA", "Gols contra"],
 ];
 
 export default function Rankings() {
-  const [rankings, setRankings] = useState<Record<string, any[]>>({});
+  const [rankings, setRankings] = useState<RankingSnapshot | null>(null);
   const [loading, setLoading] = useState(true);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
 
@@ -21,8 +25,8 @@ export default function Rankings() {
     async function carregar() {
       try {
         const data = await getRankings();
-        setRankings(data as Record<string, any[]>);
-      } catch (error: any) {
+        setRankings(data);
+      } catch (error: unknown) {
         console.error(error);
       } finally {
         setLoading(false);
@@ -33,7 +37,11 @@ export default function Rankings() {
   }, []);
 
   if (loading) {
-    return <main className="min-h-screen bg-zinc-950 px-4 py-6 text-white">Carregando rankings...</main>;
+    return (
+      <main className="min-h-screen bg-zinc-950 px-4 py-6 text-white">
+        Carregando rankings...
+      </main>
+    );
   }
 
   return (
@@ -42,11 +50,14 @@ export default function Rankings() {
 
       <section className="mt-8 grid gap-4 lg:grid-cols-2">
         {tipos.map(([tipo, titulo]) => {
-          const entries = rankings[tipo] || [];
+          const entries = rankings?.[tipo] || [];
           const visibleEntries = expanded[tipo] ? entries : entries.slice(0, 5);
 
           return (
-            <div key={tipo} className="rounded-3xl border border-zinc-800 bg-zinc-900 p-4 sm:p-6">
+            <div
+              key={tipo}
+              className="rounded-3xl border border-zinc-800 bg-zinc-900 p-4 sm:p-6"
+            >
               <h2 className="text-2xl font-black">{titulo}</h2>
 
               <div className="mt-5 space-y-3">
@@ -76,7 +87,12 @@ export default function Rankings() {
               {entries.length > 5 ? (
                 <button
                   type="button"
-                  onClick={() => setExpanded((current) => ({ ...current, [tipo]: !current[tipo] }))}
+                  onClick={() =>
+                    setExpanded((current) => ({
+                      ...current,
+                      [tipo]: !current[tipo],
+                    }))
+                  }
                   className="mt-4 text-sm font-semibold text-blue-300"
                 >
                   {expanded[tipo] ? "Mostrar menos" : "Ver todos"}

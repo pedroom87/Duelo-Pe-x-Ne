@@ -31,6 +31,7 @@ const navItems = [
   { label: "Histórico", href: "/historico" },
   { label: "Rankings", href: "/rankings" },
   { label: "Disciplina", href: "/disciplina" },
+  { label: "Jogadores", href: "/jogadores" },
 ];
 
 export default function Dashboard({ versionInfo }: DashboardProps) {
@@ -160,7 +161,7 @@ export default function Dashboard({ versionInfo }: DashboardProps) {
 
         {error && <p className="mt-4 text-xs text-zinc-500">⚠️ {error}</p>}
 
-        <section className="mt-8 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <section className="mt-8 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
           {navItems.map((item) => (
             <Link
               key={item.href}

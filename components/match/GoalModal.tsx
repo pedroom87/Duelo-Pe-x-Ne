@@ -47,6 +47,10 @@ const eventConfig = {
   GOL_CONTRA: { title: "Registrar Gol Contra", icon: "🔵", color: "blue" },
 };
 
+function getErrorMessage(error: unknown, fallback: string) {
+  return error instanceof Error ? error.message : fallback;
+}
+
 export default function EventModal({
   matchId,
   eventType,
@@ -88,22 +92,22 @@ export default function EventModal({
       // Registra o evento com o jogador criado
       switch (eventType) {
         case "GOL":
-          await addGoal(matchId, jogador.name, side);
+          await addGoal(matchId, jogador.name, side, jogador.id);
           break;
         case "ASSISTENCIA":
-          await addAssist(matchId, jogador.name, side);
+          await addAssist(matchId, jogador.name, side, jogador.id);
           break;
         case "AMARELO":
-          await addYellowCard(matchId, jogador.name, side);
+          await addYellowCard(matchId, jogador.name, side, jogador.id);
           break;
         case "VERMELHO":
-          await addRedCard(matchId, jogador.name, side);
+          await addRedCard(matchId, jogador.name, side, jogador.id);
           break;
         case "LESAO":
-          await addInjury(matchId, jogador.name, side);
+          await addInjury(matchId, jogador.name, side, jogador.id);
           break;
         case "GOL_CONTRA":
-          await addOwnGoal(matchId, jogador.name, side);
+          await addOwnGoal(matchId, jogador.name, side, jogador.id);
           break;
       }
 
@@ -115,37 +119,37 @@ export default function EventModal({
       onSaved();
       onClose();
       setSearch("");
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error("Erro ao criar jogador:", error);
-      alert(`Erro: ${error?.message || "Desconhecido"}`);
+      alert(`Erro: ${getErrorMessage(error, "Desconhecido")}`);
     } finally {
       setLoading(false);
     }
   }
 
-  async function salvar(nome: string) {
+  async function salvar(jogador: Player) {
     try {
       setLoading(true);
 
       // Registra o evento
       switch (eventType) {
         case "GOL":
-          await addGoal(matchId, nome, side);
+          await addGoal(matchId, jogador.name, side, jogador.id);
           break;
         case "ASSISTENCIA":
-          await addAssist(matchId, nome, side);
+          await addAssist(matchId, jogador.name, side, jogador.id);
           break;
         case "AMARELO":
-          await addYellowCard(matchId, nome, side);
+          await addYellowCard(matchId, jogador.name, side, jogador.id);
           break;
         case "VERMELHO":
-          await addRedCard(matchId, nome, side);
+          await addRedCard(matchId, jogador.name, side, jogador.id);
           break;
         case "LESAO":
-          await addInjury(matchId, nome, side);
+          await addInjury(matchId, jogador.name, side, jogador.id);
           break;
         case "GOL_CONTRA":
-          await addOwnGoal(matchId, nome, side);
+          await addOwnGoal(matchId, jogador.name, side, jogador.id);
           break;
       }
 
@@ -157,9 +161,11 @@ export default function EventModal({
       onSaved();
       onClose();
       setSearch("");
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error("Erro ao registrar evento:", error);
-      alert(`Erro ao registrar evento: ${error?.message || "Desconhecido"}`);
+      alert(
+        `Erro ao registrar evento: ${getErrorMessage(error, "Desconhecido")}`
+      );
     } finally {
       setLoading(false);
     }
@@ -223,7 +229,7 @@ export default function EventModal({
           {filtered.map((player) => (
             <button
               key={player.id}
-              onClick={() => salvar(player.name)}
+              onClick={() => salvar(player)}
               disabled={loading}
               className="w-full text-left rounded-lg p-3 hover:bg-zinc-800 transition disabled:opacity-50"
             >
