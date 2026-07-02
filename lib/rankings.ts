@@ -173,7 +173,7 @@ export async function getRankings() {
     const currentMap = rankingMap[eventType];
     const current = currentMap.get(key) ?? {
       key,
-      playerId: event.player_id,
+      playerId: resolvedPlayerId,
       displayName: getDisplayName(event, playersById, resolvedPlayerId),
       side: event.side,
       total: 0,
