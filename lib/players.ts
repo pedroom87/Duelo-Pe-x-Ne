@@ -18,12 +18,25 @@ export type PlayerWithAliases = Player & {
   aliases: PlayerAlias[];
 };
 
-export type PlayerDeletionPreview = {
+export type ExistingPlayerDeletionPreview = {
+  status: "found";
   player: Player;
   eventsCount: number;
   aliasesCount: number;
   canDelete: boolean;
 };
+
+export type DeletedPlayerDeletionPreview = {
+  status: "deleted";
+  playerId: string;
+  eventsCount: 0;
+  aliasesCount: 0;
+  canDelete: true;
+};
+
+export type PlayerDeletionPreview =
+  | ExistingPlayerDeletionPreview
+  | DeletedPlayerDeletionPreview;
 
 type PlayerUsageEvent = {
   player_id: string | null;
@@ -89,9 +102,21 @@ export async function getPlayerDeletionPreview(
     .from("players")
     .select("id, name, side")
     .eq("id", playerId)
-    .single();
+    .maybeSingle();
 
   if (playerError) throw playerError;
+
+  if (!player) {
+    await deletePlayerAliases(playerId);
+
+    return {
+      status: "deleted",
+      playerId,
+      eventsCount: 0,
+      aliasesCount: 0,
+      canDelete: true,
+    };
+  }
 
   const [{ count: eventsCount, error: eventsError }, { count: aliasesCount, error: aliasesError }] =
     await Promise.all([
@@ -111,6 +136,7 @@ export async function getPlayerDeletionPreview(
   const totalEvents = eventsCount ?? 0;
 
   return {
+    status: "found",
     player: player as Player,
     eventsCount: totalEvents,
     aliasesCount: aliasesCount ?? 0,
@@ -121,18 +147,17 @@ export async function getPlayerDeletionPreview(
 export async function deletePlayerSafely(playerId: string) {
   const preview = await getPlayerDeletionPreview(playerId);
 
+  if (preview.status === "deleted") {
+    return preview;
+  }
+
   if (!preview.canDelete) {
     throw new Error(
       "Este jogador possui eventos registrados e não pode ser excluído. Utilize a opção Mesclar jogadores."
     );
   }
 
-  const { error: aliasesError } = await supabase
-    .from("player_aliases")
-    .delete()
-    .eq("player_id", playerId);
-
-  if (aliasesError) throw aliasesError;
+  await deletePlayerAliases(playerId);
 
   const { error: playerError } = await supabase
     .from("players")
@@ -141,7 +166,30 @@ export async function deletePlayerSafely(playerId: string) {
 
   if (playerError) throw playerError;
 
-  return preview;
+  await deletePlayerAliases(playerId);
+
+  const { data: deletedPlayer, error: deletedCheckError } = await supabase
+    .from("players")
+    .select("id, name, side")
+    .eq("id", playerId)
+    .maybeSingle();
+
+  if (deletedCheckError) throw deletedCheckError;
+
+  if (!deletedPlayer) {
+    return preview;
+  }
+
+  throw new Error("Não foi possível excluir o jogador.");
+}
+
+async function deletePlayerAliases(playerId: string) {
+  const { error } = await supabase
+    .from("player_aliases")
+    .delete()
+    .eq("player_id", playerId);
+
+  if (error) throw error;
 }
 
 export async function getPlayersWithRecentUsage() {

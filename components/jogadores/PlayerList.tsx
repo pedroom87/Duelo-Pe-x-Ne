@@ -3,9 +3,10 @@
 import { useMemo, useState } from "react";
 import {
   deletePlayerSafely,
+  getPlayersWithAliases,
   getPlayerDeletionPreview,
+  type ExistingPlayerDeletionPreview,
   type PlayerAlias,
-  type PlayerDeletionPreview,
   type PlayerWithAliases,
 } from "@/lib/players";
 import {
@@ -49,7 +50,7 @@ export default function PlayerList({ players }: Props) {
   const [mergeLoading, setMergeLoading] = useState(false);
   const [recalculateLoading, setRecalculateLoading] = useState(false);
   const [deletionPreview, setDeletionPreview] =
-    useState<PlayerDeletionPreview | null>(null);
+    useState<ExistingPlayerDeletionPreview | null>(null);
   const [deleteConfirmation, setDeleteConfirmation] = useState("");
   const [deleteLoadingId, setDeleteLoadingId] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<string | null>(null);
@@ -166,20 +167,16 @@ export default function PlayerList({ players }: Props) {
     }
   }
 
-  function updateMergeSelectionAfterDelete(deletedPlayerId: string) {
-    const remainingPlayers = playerList.filter((player) => player.id !== deletedPlayerId);
+  async function recarregarJogadores() {
+    const updatedPlayers = await getPlayersWithAliases();
+    const nextSourceId = updatedPlayers[0]?.id ?? "";
+    const nextTargetId =
+      updatedPlayers.find((player) => player.id !== nextSourceId)?.id ?? "";
 
-    if (mergeSourceId === deletedPlayerId) {
-      setMergeSourceId(remainingPlayers[0]?.id ?? "");
-    }
-
-    if (mergeTargetId === deletedPlayerId) {
-      const nextTarget =
-        remainingPlayers.find((player) => player.id !== mergeSourceId)?.id ??
-        remainingPlayers[0]?.id ??
-        "";
-      setMergeTargetId(nextTarget);
-    }
+    setPlayerList(updatedPlayers);
+    setAliasesByPlayerId(buildAliasState(updatedPlayers));
+    setMergeSourceId(nextSourceId);
+    setMergeTargetId(nextTargetId);
   }
 
   async function abrirExclusao(playerId: string) {
@@ -187,6 +184,14 @@ export default function PlayerList({ players }: Props) {
       setDeleteLoadingId(playerId);
       setDeleteConfirmation("");
       const preview = await getPlayerDeletionPreview(playerId);
+
+      if (preview.status === "deleted") {
+        await recarregarJogadores();
+        setDeletionPreview(null);
+        setFeedback("Jogador já foi excluído.");
+        return;
+      }
+
       setDeletionPreview(preview);
       setFeedback(null);
     } catch (error: unknown) {
@@ -207,19 +212,14 @@ export default function PlayerList({ players }: Props) {
 
     try {
       setDeleteLoadingId(deletionPreview.player.id);
-      await deletePlayerSafely(deletionPreview.player.id);
-
-      setPlayerList((current) =>
-        current.filter((player) => player.id !== deletionPreview.player.id)
-      );
-      setAliasesByPlayerId((current) => {
-        const next = { ...current };
-        delete next[deletionPreview.player.id];
-        return next;
-      });
-      updateMergeSelectionAfterDelete(deletionPreview.player.id);
+      const result = await deletePlayerSafely(deletionPreview.player.id);
+      await recarregarJogadores();
       cancelarExclusao();
-      setFeedback("Jogador excluído com sucesso.");
+      setFeedback(
+        result.status === "deleted"
+          ? "Jogador já foi excluído."
+          : "Jogador excluído com sucesso."
+      );
     } catch (error: unknown) {
       const message = formatSupabaseError(error, "Erro ao excluir jogador.");
       setFeedback(message);
