@@ -112,6 +112,8 @@ export async function mergePlayers({
 
   if (targetError) throw targetError;
 
+  const automaticAlias = await addAlias(targetPlayerId, sourcePlayer.name);
+
   const { data: sourceAliases, error: sourceAliasesError } = await supabase
     .from("player_aliases")
     .select("*")
@@ -130,7 +132,6 @@ export async function mergePlayers({
   const aliasesToTransfer = Array.from(
     new Set(
       [
-        sourcePlayer.name,
         ...((sourceAliases ?? []) as PlayerAlias[]).map((alias) => alias.alias),
       ]
         .map((alias) => alias.trim())
@@ -173,7 +174,7 @@ export async function mergePlayers({
     sourcePlayer: sourcePlayer as PlayerRecord,
     targetPlayer: targetPlayer as PlayerRecord,
     updatedEvents: updatedEvents?.length ?? 0,
-    transferredAliases: aliasesToTransfer.length,
+    transferredAliases: new Set([automaticAlias.alias, ...aliasesToTransfer]).size,
     deletedSourcePlayer,
   };
 }

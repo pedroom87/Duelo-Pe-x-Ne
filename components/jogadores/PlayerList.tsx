@@ -8,6 +8,7 @@ import {
   mergePlayers,
   recalculateEventPlayerIds,
 } from "@/lib/playerAliases";
+import { formatSupabaseError } from "@/lib/supabaseErrors";
 
 interface Props {
   players: PlayerWithAliases[];
@@ -79,7 +80,7 @@ export default function PlayerList({ players }: Props) {
       });
       setFeedback("Alias salvo.");
     } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : "Erro ao salvar alias.";
+      const message = formatSupabaseError(error, "Erro ao salvar alias.");
       setFeedback(message);
     } finally {
       setAliasLoadingId(null);
@@ -133,7 +134,7 @@ export default function PlayerList({ players }: Props) {
         `Mesclagem concluída: ${result.updatedEvents} evento(s), ${result.transferredAliases} alias(es).`
       );
     } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : "Erro ao mesclar jogadores.";
+      const message = formatSupabaseError(error, "Erro ao mesclar jogadores.");
       setFeedback(message);
     } finally {
       setMergeLoading(false);
@@ -148,7 +149,7 @@ export default function PlayerList({ players }: Props) {
         `Recálculo concluído: ${result.updatedEvents}/${result.processedEvents} evento(s) atualizados, ${result.unresolvedEvents} sem vínculo.`
       );
     } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : "Erro ao recalcular rankings.";
+      const message = formatSupabaseError(error, "Erro ao recalcular rankings.");
       setFeedback(message);
     } finally {
       setRecalculateLoading(false);
