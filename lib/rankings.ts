@@ -32,6 +32,13 @@ type PlayerRecord = {
   side: string;
 };
 
+type AliasRecord = {
+  id: string;
+  player_id: string;
+  alias: string;
+  normalized_alias: string;
+};
+
 const rankingTypes: RankingEventType[] = [
   "GOL",
   "ASSISTENCIA",
@@ -82,9 +89,22 @@ export async function getRankings() {
     throw playersError;
   }
 
+  const { data: aliases, error: aliasesError } = await supabase
+    .from("player_aliases")
+    .select("id, player_id, alias, normalized_alias");
+
+  if (aliasesError) {
+    throw aliasesError;
+  }
+
   const playersById = new Map<string, PlayerRecord>();
   (players ?? []).forEach((player) => {
     playersById.set(player.id, player as PlayerRecord);
+  });
+
+  const aliasesByNormalized = new Map<string, string>();
+  (aliases ?? []).forEach((alias) => {
+    aliasesByNormalized.set(alias.normalized_alias, alias.player_id);
   });
 
   const rankingMap = Object.fromEntries(
@@ -98,8 +118,12 @@ export async function getRankings() {
       return;
     }
 
-    const key = event.player_id
-      ? `player:${event.player_id}`
+    const resolvedPlayerId = event.player_id
+      ? event.player_id
+      : aliasesByNormalized.get(normalizeText(event.player_name_raw || ""));
+
+    const key = resolvedPlayerId
+      ? `player:${resolvedPlayerId}`
       : `name:${normalizeText(event.player_name_raw || "")}:${event.side}`;
 
     const currentMap = rankingMap[eventType];
