@@ -23,7 +23,7 @@ type EventRecord = {
   player_id: string | null;
   player_name_raw: string | null;
   side: "PEDRO" | "NETU";
-  event_type: RankingEventType;
+  event_type: string;
 };
 
 type PlayerRecord = {
@@ -92,7 +92,9 @@ export async function getRankings() {
   ) as Record<RankingEventType, Map<string, RankingEntry>>;
 
   (events ?? []).forEach((event) => {
-    if (!rankingTypes.includes(event.event_type)) {
+    const eventType = event.event_type as RankingEventType;
+
+    if (!rankingTypes.includes(eventType)) {
       return;
     }
 
@@ -100,7 +102,7 @@ export async function getRankings() {
       ? `player:${event.player_id}`
       : `name:${normalizeText(event.player_name_raw || "")}:${event.side}`;
 
-    const currentMap = rankingMap[event.event_type];
+    const currentMap = rankingMap[eventType];
     const current = currentMap.get(key) ?? {
       key,
       playerId: event.player_id,
