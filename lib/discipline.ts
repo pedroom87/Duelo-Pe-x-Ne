@@ -12,10 +12,9 @@ export type DisciplineEntry = {
 };
 
 export type DisciplineSummary = {
-  yellowCards: DisciplineEntry[];
-  redCards: DisciplineEntry[];
-  pendingSuspensions: DisciplineEntry[];
-  nextGameSuspensions: DisciplineEntry[];
+  suspended: DisciplineEntry[];
+  injured: DisciplineEntry[];
+  pending: DisciplineEntry[];
   notes: string[];
 };
 
@@ -33,6 +32,14 @@ type PlayerRecord = {
   id: string;
   name: string;
   side: string;
+};
+
+type DisciplineState = {
+  yellowCards: number;
+  redCards: number;
+  injuries: number;
+  suspended: boolean;
+  reason: string | null;
 };
 
 function normalizeText(value: string) {
@@ -54,11 +61,39 @@ function getDisplayName(event: EventRecord, playersById: Map<string, PlayerRecor
   return event.player_name_raw?.trim() || "Jogador sem nome";
 }
 
+function getEntryKey(event: EventRecord) {
+  return event.player_id
+    ? `player:${event.player_id}`
+    : `name:${normalizeText(event.player_name_raw || "")}:${event.side}`;
+}
+
 export async function getDisciplineSummary(): Promise<DisciplineSummary> {
+  const { data: matches, error: matchesError } = await supabase
+    .from("matches")
+    .select("id, match_number, status")
+    .eq("status", "CLOSED")
+    .order("match_number", { ascending: true });
+
+  if (matchesError) {
+    throw matchesError;
+  }
+
+  const closedMatches = (matches ?? []).filter((match) => match.status === "CLOSED");
+  if (closedMatches.length === 0) {
+    return {
+      suspended: [],
+      injured: [],
+      pending: [],
+      notes: ["Ainda não há partidas encerradas para calcular disciplina do próximo jogo."],
+    };
+  }
+
+  const latestMatchNumber = closedMatches[closedMatches.length - 1].match_number;
+
   const { data: events, error: eventsError } = await supabase
     .from("events")
     .select("id, player_id, player_name_raw, side, event_type, match_number, seq")
-    .order("match_number", { ascending: true })
+    .eq("match_number", latestMatchNumber)
     .order("seq", { ascending: true });
 
   if (eventsError) {
@@ -78,21 +113,15 @@ export async function getDisciplineSummary(): Promise<DisciplineSummary> {
     playersById.set(player.id, player as PlayerRecord);
   });
 
-  const map = new Map<string, DisciplineEntry>();
+  const states = new Map<string, DisciplineState>();
 
   (events ?? []).forEach((event) => {
     if (!["AMARELO", "VERMELHO", "LESAO"].includes(event.event_type)) {
       return;
     }
 
-    const key = event.player_id
-      ? `player:${event.player_id}`
-      : `name:${normalizeText(event.player_name_raw || "")}:${event.side}`;
-
-    const current = map.get(key) ?? {
-      playerId: event.player_id,
-      displayName: getDisplayName(event, playersById),
-      side: event.side,
+    const key = getEntryKey(event);
+    const current = states.get(key) ?? {
       yellowCards: 0,
       redCards: 0,
       injuries: 0,
@@ -101,52 +130,65 @@ export async function getDisciplineSummary(): Promise<DisciplineSummary> {
     };
 
     if (event.event_type === "AMARELO") current.yellowCards += 1;
-    if (event.event_type === "VERMELHO") current.redCards += 1;
-    if (event.event_type === "LESAO") current.injuries += 1;
+    if (event.event_type === "VERMELHO") {
+      current.redCards += 1;
+      current.suspended = true;
+      current.reason = "Vermelho";
+    }
+    if (event.event_type === "LESAO") {
+      current.injuries += 1;
+      current.suspended = true;
+      current.reason = "Lesão";
+    }
 
-    map.set(key, current);
+    if (current.yellowCards >= 3 && !current.suspended) {
+      current.suspended = true;
+      current.reason = "3 amarelos";
+    }
+
+    states.set(key, current);
   });
 
-  const entries = Array.from(map.values()).map((entry) => {
-    if (entry.redCards > 0) {
-      entry.suspended = true;
-      entry.reason = "Vermelho";
-    } else if (entry.yellowCards >= 3) {
-      entry.suspended = true;
-      entry.reason = "3 amarelos";
-    } else if (entry.yellowCards === 2) {
+  const entries = Array.from(states.entries()).map(([key, state]) => {
+    const entry: DisciplineEntry = {
+      playerId: key.startsWith("player:") ? key.replace("player:", "") : null,
+      displayName: key.startsWith("player:")
+        ? playersById.get(key.replace("player:", ""))?.name || "Jogador sem nome"
+        : key.split(":").slice(2).join(":"),
+      side: (events ?? []).find((event) => getEntryKey(event) === key)?.side || "PEDRO",
+      yellowCards: state.yellowCards,
+      redCards: state.redCards,
+      injuries: state.injuries,
+      suspended: state.suspended,
+      reason: state.reason,
+    };
+
+    if (state.yellowCards === 2 && !state.suspended) {
       entry.reason = "2 amarelos";
-    } else if (entry.injuries > 0) {
-      entry.reason = "Lesão";
     }
 
     return entry;
   });
 
-  const yellowCards = entries
-    .filter((entry) => entry.yellowCards > 0)
-    .sort((a, b) => b.yellowCards - a.yellowCards || a.displayName.localeCompare(b.displayName));
-
-  const redCards = entries
-    .filter((entry) => entry.redCards > 0)
-    .sort((a, b) => b.redCards - a.redCards || a.displayName.localeCompare(b.displayName));
-
-  const pendingSuspensions = entries
-    .filter((entry) => entry.yellowCards === 2 && !entry.redCards)
+  const suspended = entries
+    .filter((entry) => entry.suspended && entry.reason !== "Lesão")
     .sort((a, b) => a.displayName.localeCompare(b.displayName));
 
-  const nextGameSuspensions = entries
-    .filter((entry) => entry.suspended)
+  const injured = entries
+    .filter((entry) => entry.reason === "Lesão")
+    .sort((a, b) => a.displayName.localeCompare(b.displayName));
+
+  const pending = entries
+    .filter((entry) => entry.yellowCards === 2 && !entry.suspended)
     .sort((a, b) => a.displayName.localeCompare(b.displayName));
 
   return {
-    yellowCards,
-    redCards,
-    pendingSuspensions,
-    nextGameSuspensions,
+    suspended,
+    injured,
+    pending,
     notes: [
-      "Cálculo inicial com base nos eventos existentes ordenados por partida e sequência.",
-      "A regra de ciclos de amarelos pode ser ajustada quando o fluxo de partidas ficar mais detalhado.",
+      "A disciplina é calculada com base no último jogo encerrado e no próximo número de partida.",
+      "Suspensões e lesões deixam de aparecer assim que a próxima partida é registrada.",
     ],
   };
 }
