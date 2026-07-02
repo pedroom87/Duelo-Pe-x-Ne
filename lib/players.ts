@@ -18,6 +18,13 @@ export type PlayerWithAliases = Player & {
   aliases: PlayerAlias[];
 };
 
+export type PlayerDeletionPreview = {
+  player: Player;
+  eventsCount: number;
+  aliasesCount: number;
+  canDelete: boolean;
+};
+
 type PlayerUsageEvent = {
   player_id: string | null;
   player_name_raw: string | null;
@@ -73,6 +80,68 @@ export async function getPlayersWithAliases(): Promise<PlayerWithAliases[]> {
     ...player,
     aliases: aliasesByPlayerId.get(player.id) ?? [],
   }));
+}
+
+export async function getPlayerDeletionPreview(
+  playerId: string
+): Promise<PlayerDeletionPreview> {
+  const { data: player, error: playerError } = await supabase
+    .from("players")
+    .select("id, name, side")
+    .eq("id", playerId)
+    .single();
+
+  if (playerError) throw playerError;
+
+  const [{ count: eventsCount, error: eventsError }, { count: aliasesCount, error: aliasesError }] =
+    await Promise.all([
+      supabase
+        .from("events")
+        .select("id", { head: true, count: "exact" })
+        .eq("player_id", playerId),
+      supabase
+        .from("player_aliases")
+        .select("id", { head: true, count: "exact" })
+        .eq("player_id", playerId),
+    ]);
+
+  if (eventsError) throw eventsError;
+  if (aliasesError) throw aliasesError;
+
+  const totalEvents = eventsCount ?? 0;
+
+  return {
+    player: player as Player,
+    eventsCount: totalEvents,
+    aliasesCount: aliasesCount ?? 0,
+    canDelete: totalEvents === 0,
+  };
+}
+
+export async function deletePlayerSafely(playerId: string) {
+  const preview = await getPlayerDeletionPreview(playerId);
+
+  if (!preview.canDelete) {
+    throw new Error(
+      "Este jogador possui eventos registrados e não pode ser excluído. Utilize a opção Mesclar jogadores."
+    );
+  }
+
+  const { error: aliasesError } = await supabase
+    .from("player_aliases")
+    .delete()
+    .eq("player_id", playerId);
+
+  if (aliasesError) throw aliasesError;
+
+  const { error: playerError } = await supabase
+    .from("players")
+    .delete()
+    .eq("id", playerId);
+
+  if (playerError) throw playerError;
+
+  return preview;
 }
 
 export async function getPlayersWithRecentUsage() {

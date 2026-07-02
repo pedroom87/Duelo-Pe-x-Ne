@@ -1,7 +1,13 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import type { PlayerAlias, PlayerWithAliases } from "@/lib/players";
+import {
+  deletePlayerSafely,
+  getPlayerDeletionPreview,
+  type PlayerAlias,
+  type PlayerDeletionPreview,
+  type PlayerWithAliases,
+} from "@/lib/players";
 import {
   addAlias,
   getAliases,
@@ -42,6 +48,10 @@ export default function PlayerList({ players }: Props) {
   const [mergeTargetId, setMergeTargetId] = useState(players[1]?.id ?? "");
   const [mergeLoading, setMergeLoading] = useState(false);
   const [recalculateLoading, setRecalculateLoading] = useState(false);
+  const [deletionPreview, setDeletionPreview] =
+    useState<PlayerDeletionPreview | null>(null);
+  const [deleteConfirmation, setDeleteConfirmation] = useState("");
+  const [deleteLoadingId, setDeleteLoadingId] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<string | null>(null);
 
   const filtered = useMemo(() => {
@@ -153,6 +163,68 @@ export default function PlayerList({ players }: Props) {
       setFeedback(message);
     } finally {
       setRecalculateLoading(false);
+    }
+  }
+
+  function updateMergeSelectionAfterDelete(deletedPlayerId: string) {
+    const remainingPlayers = playerList.filter((player) => player.id !== deletedPlayerId);
+
+    if (mergeSourceId === deletedPlayerId) {
+      setMergeSourceId(remainingPlayers[0]?.id ?? "");
+    }
+
+    if (mergeTargetId === deletedPlayerId) {
+      const nextTarget =
+        remainingPlayers.find((player) => player.id !== mergeSourceId)?.id ??
+        remainingPlayers[0]?.id ??
+        "";
+      setMergeTargetId(nextTarget);
+    }
+  }
+
+  async function abrirExclusao(playerId: string) {
+    try {
+      setDeleteLoadingId(playerId);
+      setDeleteConfirmation("");
+      const preview = await getPlayerDeletionPreview(playerId);
+      setDeletionPreview(preview);
+      setFeedback(null);
+    } catch (error: unknown) {
+      const message = formatSupabaseError(error, "Erro ao verificar jogador.");
+      setFeedback(message);
+    } finally {
+      setDeleteLoadingId(null);
+    }
+  }
+
+  function cancelarExclusao() {
+    setDeletionPreview(null);
+    setDeleteConfirmation("");
+  }
+
+  async function confirmarExclusao() {
+    if (!deletionPreview || deleteConfirmation !== deletionPreview.player.name) return;
+
+    try {
+      setDeleteLoadingId(deletionPreview.player.id);
+      await deletePlayerSafely(deletionPreview.player.id);
+
+      setPlayerList((current) =>
+        current.filter((player) => player.id !== deletionPreview.player.id)
+      );
+      setAliasesByPlayerId((current) => {
+        const next = { ...current };
+        delete next[deletionPreview.player.id];
+        return next;
+      });
+      updateMergeSelectionAfterDelete(deletionPreview.player.id);
+      cancelarExclusao();
+      setFeedback("Jogador excluído com sucesso.");
+    } catch (error: unknown) {
+      const message = formatSupabaseError(error, "Erro ao excluir jogador.");
+      setFeedback(message);
+    } finally {
+      setDeleteLoadingId(null);
     }
   }
 
@@ -303,10 +375,92 @@ export default function PlayerList({ players }: Props) {
                   {aliasLoadingId === player.id ? "..." : "Salvar"}
                 </button>
               </div>
+
+              <button
+                type="button"
+                onClick={() => abrirExclusao(player.id)}
+                disabled={deleteLoadingId === player.id}
+                className="mt-4 w-full rounded-lg border border-red-800 bg-red-950/30 px-4 py-3 text-sm font-bold text-red-200 transition hover:bg-red-950/50 disabled:opacity-50"
+              >
+                {deleteLoadingId === player.id ? "Verificando..." : "Excluir jogador"}
+              </button>
             </div>
           );
         })}
       </div>
+
+      {deletionPreview ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
+          <div className="w-full max-w-md rounded-2xl border border-zinc-800 bg-zinc-950 p-5 text-white shadow-2xl">
+            <h2 className="text-2xl font-black">Excluir jogador</h2>
+
+            <div className="mt-5 space-y-4 text-sm">
+              <div>
+                <p className="text-zinc-500">Nome:</p>
+                <p className="mt-1 text-lg font-bold">{deletionPreview.player.name}</p>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-3">
+                  <p className="text-zinc-500">Eventos:</p>
+                  <p className="mt-1 text-2xl font-black">{deletionPreview.eventsCount}</p>
+                </div>
+
+                <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-3">
+                  <p className="text-zinc-500">Aliases:</p>
+                  <p className="mt-1 text-2xl font-black">{deletionPreview.aliasesCount}</p>
+                </div>
+              </div>
+
+              {deletionPreview.eventsCount > 0 ? (
+                <p className="rounded-xl border border-yellow-800 bg-yellow-950/30 p-3 text-yellow-200">
+                  Este jogador possui eventos registrados e não pode ser excluído.
+                  Utilize a opção Mesclar jogadores.
+                </p>
+              ) : (
+                <>
+                  <p className="rounded-xl border border-red-800 bg-red-950/30 p-3 text-red-200">
+                    ⚠️ Esta ação é permanente.
+                  </p>
+
+                  <label className="block text-zinc-300">
+                    Para confirmar digite exatamente o nome do jogador.
+                    <input
+                      value={deleteConfirmation}
+                      onChange={(event) => setDeleteConfirmation(event.target.value)}
+                      className="mt-2 w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-3 text-white"
+                      autoFocus
+                    />
+                  </label>
+                </>
+              )}
+            </div>
+
+            <div className="mt-6 flex flex-col gap-2 sm:flex-row">
+              <button
+                type="button"
+                onClick={cancelarExclusao}
+                className="flex-1 rounded-lg border border-zinc-700 bg-zinc-900 px-4 py-3 font-bold text-zinc-200 transition hover:bg-zinc-800"
+              >
+                Cancelar
+              </button>
+
+              <button
+                type="button"
+                onClick={confirmarExclusao}
+                disabled={
+                  deletionPreview.eventsCount > 0 ||
+                  deleteConfirmation !== deletionPreview.player.name ||
+                  deleteLoadingId === deletionPreview.player.id
+                }
+                className="flex-1 rounded-lg bg-red-700 px-4 py-3 font-bold text-white transition hover:bg-red-600 disabled:opacity-50"
+              >
+                {deleteLoadingId === deletionPreview.player.id ? "Excluindo..." : "Excluir"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
