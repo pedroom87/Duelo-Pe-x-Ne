@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
-import { deleteMatch } from "@/lib/matches";
+import { deleteMatch, setMatchVerification } from "@/lib/matches";
 
 type Match = {
   id: string;
@@ -11,20 +11,23 @@ type Match = {
   pedro_goals: number;
   netu_goals: number;
   winner: string;
+  verified: boolean;
 };
 
 export default function Historico() {
   const [matches, setMatches] = useState<Match[]>([]);
+  const [filter, setFilter] = useState<"all" | "pending" | "verified">("all");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [deletando, setDeletando] = useState<string | null>(null);
+  const [updatingVerification, setUpdatingVerification] = useState<string | null>(null);
 
   async function carregarHistorico() {
     try {
       setLoading(true);
       const { data, error: err } = await supabase
         .from("matches")
-        .select("id, match_number, pedro_goals, netu_goals, winner")
+        .select("id, match_number, pedro_goals, netu_goals, winner, verified")
         .order("match_number", { ascending: false });
 
       if (err) {
@@ -44,6 +47,26 @@ export default function Historico() {
   useEffect(() => {
     carregarHistorico();
   }, []);
+
+  const filteredMatches = matches.filter((match) => {
+    if (filter === "pending") return !match.verified;
+    if (filter === "verified") return match.verified;
+    return true;
+  });
+
+  async function toggleVerification(match: Match) {
+    try {
+      setUpdatingVerification(match.id);
+      await setMatchVerification(match.id, !match.verified);
+      setMatches((current) =>
+        current.map((item) => (item.id === match.id ? { ...item, verified: !item.verified } : item))
+      );
+    } catch (err: any) {
+      alert(`Erro ao atualizar conferência: ${err.message}`);
+    } finally {
+      setUpdatingVerification(null);
+    }
+  }
 
   async function excluirPartida(id: string, matchNumber: number) {
     if (
@@ -92,14 +115,35 @@ export default function Historico() {
         {matches.length} partida{matches.length !== 1 ? "s" : ""} registrada{matches.length !== 1 ? "s" : ""}.
       </p>
 
+      <section className="mt-6 flex flex-wrap gap-2">
+        {[
+          { key: "all", label: "Todas" },
+          { key: "pending", label: "Pendentes" },
+          { key: "verified", label: "Conferidas" },
+        ].map((item) => (
+          <button
+            key={item.key}
+            type="button"
+            onClick={() => setFilter(item.key as "all" | "pending" | "verified")}
+            className={`rounded-full border px-3 py-2 text-sm ${
+              filter === item.key
+                ? "border-zinc-600 bg-zinc-800 text-white"
+                : "border-zinc-800 bg-zinc-900 text-zinc-400"
+            }`}
+          >
+            {item.label}
+          </button>
+        ))}
+      </section>
+
       <section className="mt-8 space-y-3">
-        {matches.length === 0 && (
+        {filteredMatches.length === 0 && (
           <div className="rounded-2xl border border-zinc-800 bg-zinc-900 p-5 text-center text-zinc-400">
             Nenhuma partida registrada ainda.
           </div>
         )}
 
-        {matches.map((match: Match) => (
+        {filteredMatches.map((match: Match) => (
           <div
             key={match.id}
             className="rounded-2xl border border-zinc-800 bg-zinc-900 p-4 sm:p-5"
@@ -123,6 +167,14 @@ export default function Historico() {
               <p className="mt-3 text-sm text-zinc-400">
                 Vencedor: {match.winner || "Empatado"}
               </p>
+
+              <div className={`mt-3 inline-flex items-center rounded-full border px-3 py-1 text-sm ${
+                match.verified
+                  ? "border-green-800/50 bg-green-950/20 text-green-300"
+                  : "border-yellow-800/50 bg-yellow-950/20 text-yellow-300"
+              }`}>
+                {match.verified ? "✅ Conferida" : "⚠️ Pendente de conferência"}
+              </div>
             </div>
 
             <div className="mt-4 flex flex-col gap-2 sm:ml-4 sm:flex-row">
@@ -132,6 +184,23 @@ export default function Historico() {
                 className="rounded-xl border border-red-700 bg-red-900/30 px-4 py-2 text-red-300 transition hover:bg-red-900/50 disabled:opacity-50"
               >
                 {deletando === match.id ? "Deletando..." : "🗑️ Excluir"}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => toggleVerification(match)}
+                disabled={updatingVerification === match.id}
+                className={`rounded-xl border px-4 py-2 text-sm transition ${
+                  match.verified
+                    ? "border-zinc-700 bg-zinc-800 text-zinc-300"
+                    : "border-yellow-700 bg-yellow-900/30 text-yellow-200"
+                } disabled:opacity-50`}
+              >
+                {updatingVerification === match.id
+                  ? "Atualizando..."
+                  : match.verified
+                    ? "Desmarcar conferência"
+                    : "Marcar como conferida"}
               </button>
 
               <Link

@@ -22,6 +22,7 @@ export interface Match {
   netu_goals: number;
   winner: string;
   status: "OPEN" | "CLOSED";
+  verified: boolean;
   created_at: string;
 }
 
@@ -47,6 +48,7 @@ export async function createMatch() {
       netu_goals: 0,
       winner: "",
       status: "OPEN",
+      verified: false,
     })
     .select()
     .single();
@@ -135,6 +137,15 @@ export async function endMatch(matchId: string) {
 /**
  * Deleta uma partida e todos seus eventos associados
  */
+export async function setMatchVerification(matchId: string, verified: boolean) {
+  const { error } = await supabase
+    .from("matches")
+    .update({ verified })
+    .eq("id", matchId);
+
+  if (error) throw error;
+}
+
 export async function deleteMatch(matchId: string) {
   // Primeiro deleta todos os eventos da partida
   const { error: eventsError } = await supabase

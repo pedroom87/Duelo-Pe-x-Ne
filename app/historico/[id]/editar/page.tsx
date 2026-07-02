@@ -12,6 +12,7 @@ type Match = {
   netu_goals: number;
   winner: string;
   status?: string;
+  verified?: boolean;
 };
 
 type EventType = "GOL" | "ASSISTENCIA" | "AMARELO" | "VERMELHO" | "LESAO" | "GOL_CONTRA";
@@ -51,7 +52,7 @@ export default function EditarPartida() {
       try {
         const { data, error: err } = await supabase
           .from("matches")
-          .select("id, match_number, pedro_goals, netu_goals, winner, status")
+          .select("id, match_number, pedro_goals, netu_goals, winner, status, verified")
           .eq("id", matchId)
           .single();
 
@@ -176,6 +177,7 @@ export default function EditarPartida() {
       setSaving(true);
       const novoWinner = calcularVencedor(match.pedro_goals, match.netu_goals);
 
+      const shouldVerify = window.confirm("Marcar esta partida como conferida?");
       const { error: err } = await supabase
         .from("matches")
         .update({
@@ -183,6 +185,7 @@ export default function EditarPartida() {
           netu_goals: match.netu_goals,
           winner: novoWinner,
           status,
+          verified: shouldVerify,
         })
         .eq("id", matchId);
 

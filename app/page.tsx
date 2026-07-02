@@ -11,12 +11,23 @@ type Stats = {
   empates: number;
 };
 
+type VerificationStats = {
+  total: number;
+  verified: number;
+  pending: number;
+};
+
 export default function Home() {
   const [stats, setStats] = useState<Stats>({
     total: 0,
     pedroVitorias: 0,
     netuVitorias: 0,
     empates: 0,
+  });
+  const [verificationStats, setVerificationStats] = useState<VerificationStats>({
+    total: 0,
+    verified: 0,
+    pending: 0,
   });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -27,7 +38,7 @@ export default function Home() {
         // Busca TODAS as partidas (sem filtro de status)
         const { data: matches, error: err } = await supabase
           .from("matches")
-          .select("id, winner, pedro_goals, netu_goals");
+          .select("id, winner, pedro_goals, netu_goals, verified");
 
         if (err) {
           console.error("Erro ao carregar estatísticas:", err);
@@ -63,6 +74,11 @@ export default function Home() {
           pedroVitorias,
           netuVitorias,
           empates,
+        });
+        setVerificationStats({
+          total,
+          verified: matches.filter((m) => m.verified).length,
+          pending: matches.filter((m) => !m.verified).length,
         });
         setError(null);
       } catch (err: any) {
@@ -130,6 +146,26 @@ export default function Home() {
               <p className="mt-2 text-3xl font-black">{value}</p>
             </div>
           ))}
+        </section>
+
+        <section className="mt-8 rounded-3xl border border-zinc-800 bg-zinc-900 p-6">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p className="text-sm font-bold uppercase tracking-[0.3em] text-zinc-400">Conferência</p>
+              <h2 className="mt-2 text-2xl font-black">{verificationStats.verified}/{verificationStats.total} conferidas</h2>
+            </div>
+            <div className="text-sm text-zinc-400">
+              <p>Conferidas: {verificationStats.verified}</p>
+              <p>Pendentes: {verificationStats.pending}</p>
+            </div>
+          </div>
+
+          <div className="mt-4 h-2 overflow-hidden rounded-full bg-zinc-800">
+            <div
+              className="h-full rounded-full bg-green-500"
+              style={{ width: `${verificationStats.total ? (verificationStats.verified / verificationStats.total) * 100 : 0}%` }}
+            />
+          </div>
         </section>
 
         {error && (
