@@ -32,6 +32,7 @@ export type MergePlayersResult = {
   updatedEvents: number;
   transferredAliases: number;
   deletedSourcePlayer: boolean;
+  aliasConflicts?: number;
 };
 
 export type RecalculateRankingsResult = {
@@ -112,14 +113,55 @@ export async function mergePlayers({
 
   if (targetError) throw targetError;
 
-  const automaticAlias = await addAlias(targetPlayerId, sourcePlayer.name);
+  async function transferAliasSafe(params: {
+    aliasName: string;
+    normalizedAlias: string;
+  }) {
+    const { aliasName, normalizedAlias } = params;
 
-  const { data: sourceAliases, error: sourceAliasesError } = await supabase
-    .from("player_aliases")
-    .select("*")
-    .eq("player_id", sourcePlayerId);
+    const { data: existing, error: existingError } = await supabase
+      .from("player_aliases")
+      .select("id, player_id")
+      .eq("normalized_alias", normalizedAlias)
+      .maybeSingle();
 
-  if (sourceAliasesError) throw sourceAliasesError;
+    if (existingError) throw existingError;
+
+    if (!existing) {
+      await supabase.from("player_aliases").insert({
+        player_id: targetPlayerId,
+        alias: aliasName,
+        normalized_alias: normalizedAlias,
+      });
+      return { transferred: true, conflict: false };
+    }
+
+    if (existing.player_id === targetPlayerId) {
+      // Já pertence ao destino: idempotente.
+      return { transferred: false, conflict: false };
+    }
+
+    if (existing.player_id === sourcePlayerId) {
+      // Pertence à origem: move para o destino.
+      const { error: updateError } = await supabase
+        .from("player_aliases")
+        .update({ player_id: targetPlayerId })
+        .eq("id", existing.id);
+
+      if (updateError) throw updateError;
+
+      return { transferred: true, conflict: false };
+    }
+
+    // Pertence a outro jogador: não sobrescreve.
+    return { transferred: false, conflict: true };
+  }
+
+  let aliasConflicts = 0;
+  let transferredAliasCount = 0;
+
+  const automaticAliasName = sourcePlayer.name.trim();
+  const automaticNormalized = normalizeText(automaticAliasName);
 
   const { data: updatedEvents, error: updateError } = await supabase
     .from("events")
@@ -129,18 +171,42 @@ export async function mergePlayers({
 
   if (updateError) throw updateError;
 
+  if (automaticNormalized) {
+    const autoResult = await transferAliasSafe({
+      aliasName: automaticAliasName,
+      normalizedAlias: automaticNormalized,
+    });
+
+    if (autoResult.conflict) aliasConflicts += 1;
+    if (autoResult.transferred) transferredAliasCount += 1;
+  }
+
+  const { data: sourceAliases, error: sourceAliasesError } = await supabase
+    .from("player_aliases")
+    .select("alias")
+    .eq("player_id", sourcePlayerId);
+
+  if (sourceAliasesError) throw sourceAliasesError;
+
   const aliasesToTransfer = Array.from(
     new Set(
-      [
-        ...((sourceAliases ?? []) as PlayerAlias[]).map((alias) => alias.alias),
-      ]
-        .map((alias) => alias.trim())
+      ((sourceAliases ?? []) as Array<Pick<PlayerAlias, "alias">>)
+        .map((a) => (a.alias ?? "").trim())
         .filter(Boolean)
     )
   );
 
   for (const alias of aliasesToTransfer) {
-    await addAlias(targetPlayerId, alias);
+    const normalized = normalizeText(alias);
+    if (!normalized) continue;
+
+    const result = await transferAliasSafe({
+      aliasName: alias,
+      normalizedAlias: normalized,
+    });
+
+    if (result.conflict) aliasConflicts += 1;
+    if (result.transferred) transferredAliasCount += 1;
   }
 
   const { count, error: eventsCountError } = await supabase
@@ -174,7 +240,8 @@ export async function mergePlayers({
     sourcePlayer: sourcePlayer as PlayerRecord,
     targetPlayer: targetPlayer as PlayerRecord,
     updatedEvents: updatedEvents?.length ?? 0,
-    transferredAliases: new Set([automaticAlias.alias, ...aliasesToTransfer]).size,
+    transferredAliases: transferredAliasCount,
+    aliasConflicts: aliasConflicts || undefined,
     deletedSourcePlayer,
   };
 }
