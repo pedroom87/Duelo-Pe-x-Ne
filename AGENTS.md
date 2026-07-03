@@ -128,4 +128,6 @@ fix:
 
 refactor:
 
+Toda Sprint aprovada deve atualizar versÃ£o e changelog quando alterar produto.
+
 <!-- END: nextjs-agent-rules -->

@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
 
-const APP_VERSION = "v0.4.2";
+const APP_VERSION = "v0.6.1";
 
 export type VersionInfo = {
   version: string;
