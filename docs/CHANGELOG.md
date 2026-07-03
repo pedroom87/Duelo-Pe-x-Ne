@@ -1,5 +1,6 @@
 # Changelog
 
+- v0.7.6 — Ajustes Mobile
 - v0.7.5 — Polimento Visual
 - v0.7.4 — Perfil do Usuário
 - v0.7.3 — Internacionalização Base

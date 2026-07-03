@@ -12,14 +12,14 @@ export type VersionInfo = {
  * Valores desta Sprint (Duel Legacy / 0.7.5)
  * Importante: não exibir commit no Dashboard (mantemos commit opcional/indisponível).
  */
-const VERSION_NUMBER = "0.7.5";
-const VERSION_CODENAME = "Polimento Visual";
+const VERSION_NUMBER = "0.7.6";
+const VERSION_CODENAME = "Ajustes Mobile";
 const VERSION_RELEASED_AT = "2026-07-03";
 const VERSION_COMMIT = null;
 const VERSION_HIGHLIGHTS = [
-  "Polimento visual do Dashboard",
-  "Banner do campeonato ajustado",
-  "Identidade Pedro × Netu mais equilibrada",
+  "Acesso mobile ao Perfil",
+  "Identidade Palmeiras mais equilibrada",
+  "Ajustes visuais no Dashboard",
 ];
 
 

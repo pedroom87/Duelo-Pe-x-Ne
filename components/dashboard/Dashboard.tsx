@@ -161,14 +161,16 @@ export default function Dashboard({ versionInfo }: DashboardProps) {
                   </div>
                 </div>
 
-                <div className="rounded-2xl border border-green-700/70 bg-green-950/30 p-4">
+                <div className="rounded-2xl border border-green-800/70 bg-green-950/30 p-4">
                   <p className="text-xs font-bold uppercase tracking-[0.25em] text-green-100">
                     Netu
                   </p>
                   <p className="mt-1 font-black text-white">Palmeiras</p>
-                  <div className="mt-3 grid grid-cols-[2fr_1fr] gap-1">
+                  {/* 1/3 verde - 1/3 branco - 1/3 verde */}
+                  <div className="mt-3 grid grid-cols-[1fr_1fr_1fr] gap-1">
                     <span className="h-1 rounded-full bg-green-500" />
                     <span className="h-1 rounded-full bg-white" />
+                    <span className="h-1 rounded-full bg-green-500" />
                   </div>
                 </div>
               </div>
@@ -326,6 +328,17 @@ export default function Dashboard({ versionInfo }: DashboardProps) {
               {getNavItemLabel(item.href, item.label, t)}
             </Link>
           ))}
+
+          {/* Atalho mobile para /perfil (BottomNav mobile não mostra “Perfil”) */}
+          <Link
+            href="/perfil"
+            className="rounded-2xl border border-zinc-800 bg-zinc-900 px-5 py-4 text-left transition hover:border-zinc-500 hover:bg-zinc-800"
+          >
+            <span className="block font-bold">Perfil</span>
+            <span className="mt-1 block text-sm font-semibold text-zinc-400">
+              Dados, avatar e idioma
+            </span>
+          </Link>
 
           <Link
             href="/projeto"
