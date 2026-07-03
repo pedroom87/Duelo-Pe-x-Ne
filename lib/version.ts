@@ -8,15 +8,18 @@ export type VersionInfo = {
   highlights: string[];
 };
 
-// Valores desta Sprint (Duel Legacy / 0.7.4)
-const VERSION_NUMBER = "0.7.4";
-const VERSION_CODENAME = "Perfil do Usuário";
+/**
+ * Valores desta Sprint (Duel Legacy / 0.7.5)
+ * Importante: não exibir commit no Dashboard (mantemos commit opcional/indisponível).
+ */
+const VERSION_NUMBER = "0.7.5";
+const VERSION_CODENAME = "Polimento Visual";
 const VERSION_RELEASED_AT = "2026-07-03";
 const VERSION_COMMIT = null;
 const VERSION_HIGHLIGHTS = [
-  "Página de perfil do usuário autenticado",
-  "Nome de exibição e avatar configuráveis",
-  "Preferência de idioma preparada no perfil",
+  "Polimento visual do Dashboard",
+  "Banner do campeonato ajustado",
+  "Identidade Pedro × Netu mais equilibrada",
 ];
 
 

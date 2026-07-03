@@ -105,29 +105,30 @@ export default function Dashboard({ versionInfo }: DashboardProps) {
 
         <section className="mb-8 overflow-hidden rounded-3xl border border-zinc-800 bg-zinc-900">
           <div className="relative min-h-[26rem] sm:min-h-[23rem] lg:min-h-[20rem]">
-            <div className="absolute inset-x-0 top-0 h-60 overflow-hidden lg:inset-y-0 lg:left-auto lg:right-0 lg:h-auto lg:w-[54%]">
+            <div className="absolute inset-x-0 top-0 h-72 overflow-hidden lg:inset-y-0 lg:left-auto lg:right-0 lg:h-auto lg:w-[54%]">
               <Image
                 src={CHAMPIONSHIP_MASCOTS_IMAGE}
                 alt="Mascotes do campeonato Duelo Pe × Ne"
                 fill
                 priority
                 sizes="(min-width: 1024px) 52vw, 100vw"
-                className="object-cover opacity-85"
+                className="object-cover opacity-95"
                 style={{
-                  objectPosition: "center top",
-                  transform: "scale(1.08)",
+                  objectPosition: "center 20%",
+                  transform: "scale(1.06)",
                   transformOrigin: "top center",
                 }}
               />
-              <div className="absolute inset-0 bg-gradient-to-b from-transparent from-25% via-zinc-950/85 via-60% to-zinc-950 lg:bg-gradient-to-l lg:from-zinc-950/10 lg:via-zinc-950/70 lg:to-zinc-900" />
-              <div className="absolute inset-x-0 bottom-0 h-40 bg-zinc-950/95 lg:h-44" />
+
+              <div className="absolute inset-0 bg-gradient-to-b from-transparent from-20% via-zinc-950/65 via-60% to-zinc-950/95 lg:bg-gradient-to-l lg:from-zinc-950/10 lg:via-zinc-950/70 lg:to-zinc-900" />
+              <div className="absolute inset-x-0 bottom-0 h-44 bg-gradient-to-t from-zinc-950/95 via-zinc-950/65 to-transparent lg:h-48" />
             </div>
 
-            <div className="relative z-10 flex min-h-[26rem] flex-col justify-end p-5 sm:min-h-[23rem] sm:p-8 lg:min-h-[20rem] lg:w-[58%] lg:justify-center">
+            <div className="relative z-10 flex min-h-[26rem] flex-col justify-center gap-3 p-5 sm:min-h-[23rem] sm:p-8 lg:min-h-[20rem] lg:w-[58%]">
               <p className="text-xs font-bold uppercase tracking-[0.35em] text-zinc-500">
                 {t("common.productGlobal")}
               </p>
-              <h2 className="mt-3 text-3xl font-black tracking-tight sm:text-4xl">
+              <h2 className="mt-1 text-3xl font-black tracking-tight sm:text-4xl">
                 Duel Legacy
               </h2>
 
@@ -160,13 +161,13 @@ export default function Dashboard({ versionInfo }: DashboardProps) {
                   </div>
                 </div>
 
-                <div className="rounded-2xl border border-green-800/60 bg-green-950/25 p-4">
-                  <p className="text-xs font-bold uppercase tracking-[0.25em] text-green-200">
+                <div className="rounded-2xl border border-green-700/70 bg-green-950/30 p-4">
+                  <p className="text-xs font-bold uppercase tracking-[0.25em] text-green-100">
                     Netu
                   </p>
                   <p className="mt-1 font-black text-white">Palmeiras</p>
                   <div className="mt-3 grid grid-cols-[2fr_1fr] gap-1">
-                    <span className="h-1 rounded-full bg-green-600" />
+                    <span className="h-1 rounded-full bg-green-500" />
                     <span className="h-1 rounded-full bg-white" />
                   </div>
                 </div>
