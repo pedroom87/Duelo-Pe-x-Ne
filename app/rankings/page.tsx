@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { TeamBadge } from "@/components/teams/TeamBadge";
 import {
   getRankings,
   type RankingEventType,
@@ -74,9 +75,9 @@ export default function Rankings() {
                       <p className="font-bold">
                         {index + 1}. {player.displayName}
                       </p>
-                      <p className="text-sm text-zinc-400">
-                        {player.side === "PEDRO" ? "SPFC" : "SEP"}
-                      </p>
+                      <div className="mt-1">
+                        <TeamBadge side={player.side} withMascot />
+                      </div>
                     </div>
 
                     <p className="text-2xl font-black">{player.total}</p>

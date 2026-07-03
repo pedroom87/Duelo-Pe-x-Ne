@@ -16,17 +16,11 @@ import {
   recalculateEventPlayerIds,
 } from "@/lib/playerAliases";
 import { formatSupabaseError } from "@/lib/supabaseErrors";
+import { TeamBadge } from "@/components/teams/TeamBadge";
+import { getTeamSide, getTeamTheme } from "@/utils/constants";
 
 interface Props {
   players: PlayerWithAliases[];
-}
-
-function getSideLabel(side: string) {
-  return side === "PEDRO" ? "São Paulo" : "Palmeiras";
-}
-
-function getSideShort(side: string) {
-  return side === "PEDRO" ? "SPFC" : "SEP";
 }
 
 function buildAliasState(players: PlayerWithAliases[]) {
@@ -261,7 +255,7 @@ export default function PlayerList({ players }: Props) {
             >
               {playerList.map((player) => (
                 <option key={player.id} value={player.id}>
-                  {player.name} - {getSideShort(player.side)}
+                  {player.name} - {getTeamTheme(player.side).short}
                 </option>
               ))}
             </select>
@@ -276,7 +270,7 @@ export default function PlayerList({ players }: Props) {
             >
               {playerList.map((player) => (
                 <option key={player.id} value={player.id}>
-                  {player.name} - {getSideShort(player.side)}
+                  {player.name} - {getTeamTheme(player.side).short}
                 </option>
               ))}
             </select>
@@ -307,15 +301,13 @@ export default function PlayerList({ players }: Props) {
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
         {filtered.map((player) => {
           const aliases = aliasesByPlayerId[player.id] ?? [];
+          const side = getTeamSide(player.side);
+          const team = getTeamTheme(side);
 
           return (
             <div
               key={player.id}
-              className={`rounded-2xl border p-5 ${
-                player.side === "PEDRO"
-                  ? "border-red-700 bg-red-950/20"
-                  : "border-green-700 bg-green-950/20"
-              }`}
+              className={`rounded-2xl border p-5 ${team.classes.border} ${team.classes.panel}`}
             >
               <div className="flex items-start justify-between gap-3">
                 <div>
@@ -325,12 +317,10 @@ export default function PlayerList({ players }: Props) {
                   <h2 className="mt-1 text-xl font-bold">{player.name}</h2>
                 </div>
 
-                <span className="rounded-full border border-zinc-700 bg-zinc-900 px-3 py-1 text-xs font-bold text-zinc-300">
-                  {getSideShort(player.side)}
-                </span>
+                <TeamBadge side={side} withMascot />
               </div>
 
-              <p className="mt-2 text-sm text-zinc-400">{getSideLabel(player.side)}</p>
+              <p className="mt-2 text-sm text-zinc-400">{team.club}</p>
 
               <div className="mt-5">
                 <p className="text-xs uppercase tracking-[0.2em] text-zinc-500">

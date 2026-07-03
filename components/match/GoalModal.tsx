@@ -11,6 +11,7 @@ import {
   addOwnGoal,
 } from "@/lib/events";
 import { refreshScore } from "@/lib/matches";
+import { TeamBadge } from "@/components/teams/TeamBadge";
 
 interface Player {
   id: string;
@@ -181,20 +182,38 @@ export default function EventModal({
         <div className="flex gap-3 mb-5">
           <button
             onClick={() => setSide("PEDRO")}
-            className={`flex-1 rounded-xl p-3 font-bold transition ${
-              side === "PEDRO" ? "bg-red-700 text-white" : "bg-zinc-800 text-zinc-400"
+            className={`flex-1 rounded-xl border p-2 font-bold transition ${
+              side === "PEDRO"
+                ? "border-red-700 bg-red-950/50"
+                : "border-zinc-800 bg-zinc-800"
             }`}
           >
-            São Paulo
+            <TeamBadge
+              side="PEDRO"
+              label="São Paulo"
+              variant={side === "PEDRO" ? "solid" : "soft"}
+              size="md"
+              withMascot
+              className="w-full justify-center"
+            />
           </button>
 
           <button
             onClick={() => setSide("NETU")}
-            className={`flex-1 rounded-xl p-3 font-bold transition ${
-              side === "NETU" ? "bg-green-700 text-white" : "bg-zinc-800 text-zinc-400"
+            className={`flex-1 rounded-xl border p-2 font-bold transition ${
+              side === "NETU"
+                ? "border-green-700 bg-green-950/50"
+                : "border-zinc-800 bg-zinc-800"
             }`}
           >
-            Palmeiras
+            <TeamBadge
+              side="NETU"
+              label="Palmeiras"
+              variant={side === "NETU" ? "solid" : "soft"}
+              size="md"
+              withMascot
+              className="w-full justify-center"
+            />
           </button>
         </div>
 

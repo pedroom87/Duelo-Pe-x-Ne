@@ -2,12 +2,15 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { TeamBadge } from "@/components/teams/TeamBadge";
+import { TeamMascot } from "@/components/teams/TeamMascot";
 import {
   getDashboardStats,
   type DashboardStats,
   type VerificationStats,
 } from "@/lib/dashboard";
 import type { VersionInfo } from "@/lib/version";
+import { TEAM_ORDER, getTeamTheme, type TeamSide } from "@/utils/constants";
 
 type DashboardProps = {
   versionInfo: VersionInfo;
@@ -33,6 +36,12 @@ const navItems = [
   { label: "Disciplina", href: "/disciplina" },
   { label: "Jogadores", href: "/jogadores" },
 ];
+
+type StatCard = {
+  label: string;
+  value: number | string;
+  side?: TeamSide;
+};
 
 export default function Dashboard({ versionInfo }: DashboardProps) {
   const [stats, setStats] = useState<DashboardStats>(emptyStats);
@@ -64,49 +73,87 @@ export default function Dashboard({ versionInfo }: DashboardProps) {
     <main className="min-h-screen bg-zinc-950 pb-24 text-white sm:pb-0">
       <section className="mx-auto flex min-h-screen max-w-6xl flex-col px-4 py-6 sm:px-6 sm:py-8">
         <header className="mb-8 flex flex-col gap-4 sm:mb-10 sm:flex-row sm:items-center sm:justify-between">
-          <div>
+          <div className="flex items-center gap-4">
+            <div className="flex -space-x-3">
+              <TeamMascot side="PEDRO" size="lg" priority />
+              <TeamMascot side="NETU" size="lg" priority />
+            </div>
+            <div>
             <p className="text-xs uppercase tracking-[0.35em] text-zinc-400 sm:text-sm">
               São Paulo x Palmeiras
             </p>
             <h1 className="mt-2 text-3xl font-black tracking-tight sm:text-4xl">
               Duelo Pe X Ne
             </h1>
+            </div>
           </div>
 
-          <div className="rounded-full border border-zinc-700 px-4 py-2 text-sm text-zinc-300">
-            Pedro × Netu
+          <div className="flex flex-wrap gap-2">
+            <TeamBadge side="PEDRO" label="Pedro" withMascot />
+            <TeamBadge side="NETU" label="Netu" withMascot />
           </div>
         </header>
 
         <section className="grid gap-4 sm:grid-cols-2">
-          <div className="rounded-3xl border border-red-900/60 bg-red-950/30 p-6 sm:p-8">
-            <p className="text-sm font-bold uppercase text-red-300">Pedro</p>
-            <h2 className="mt-2 text-2xl font-black sm:text-3xl">São Paulo</h2>
-            <p className="mt-4 text-zinc-300">Tricolor Paulista</p>
-          </div>
+          {TEAM_ORDER.map((side) => {
+            const team = getTeamTheme(side);
 
-          <div className="rounded-3xl border border-green-900/60 bg-green-950/30 p-6 sm:p-8">
-            <p className="text-sm font-bold uppercase text-green-300">Netu</p>
-            <h2 className="mt-2 text-2xl font-black sm:text-3xl">Palmeiras</h2>
-            <p className="mt-4 text-zinc-300">Alviverde Imponente</p>
-          </div>
+            return (
+              <div
+                key={side}
+                className={`overflow-hidden rounded-3xl border p-6 sm:p-8 ${team.classes.border} ${team.classes.panel}`}
+              >
+                <div className="flex items-center justify-between gap-5">
+                  <div>
+                    <p className={`text-sm font-bold uppercase ${team.classes.text}`}>
+                      {team.owner}
+                    </p>
+                    <h2 className="mt-2 text-2xl font-black sm:text-3xl">
+                      {team.club}
+                    </h2>
+                    <p className="mt-4 text-zinc-300">{team.identity}</p>
+                  </div>
+                  <TeamMascot side={side} size="xl" priority />
+                </div>
+              </div>
+            );
+          })}
         </section>
 
         <section className="mt-8 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-          {[
-            ["Jogos", loading ? "-" : stats.total],
-            ["Vitórias Pedro", loading ? "-" : stats.pedroVitorias],
-            ["Vitórias Netu", loading ? "-" : stats.netuVitorias],
-            ["Empates", loading ? "-" : stats.empates],
-          ].map(([label, value]) => (
-            <div
-              key={label}
-              className="rounded-2xl border border-zinc-800 bg-zinc-900 p-6"
-            >
-              <p className="text-sm text-zinc-400">{label}</p>
-              <p className="mt-2 text-3xl font-black">{value}</p>
-            </div>
-          ))}
+          {([
+            { label: "Jogos", value: loading ? "-" : stats.total },
+            {
+              label: "Vitórias Pedro",
+              value: loading ? "-" : stats.pedroVitorias,
+              side: "PEDRO",
+            },
+            {
+              label: "Vitórias Netu",
+              value: loading ? "-" : stats.netuVitorias,
+              side: "NETU",
+            },
+            { label: "Empates", value: loading ? "-" : stats.empates },
+          ] satisfies StatCard[]).map((item) => {
+            const team = item.side ? getTeamTheme(item.side) : null;
+
+            return (
+              <div
+                key={item.label}
+                className={`rounded-2xl border p-6 ${
+                  team
+                    ? `${team.classes.border} ${team.classes.panel}`
+                    : "border-zinc-800 bg-zinc-900"
+                }`}
+              >
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-sm text-zinc-400">{item.label}</p>
+                  {item.side ? <TeamBadge side={item.side} /> : null}
+                </div>
+                <p className="mt-2 text-3xl font-black">{item.value}</p>
+              </div>
+            );
+          })}
         </section>
 
         <section className="mt-8 rounded-3xl border border-zinc-800 bg-zinc-900 p-6">

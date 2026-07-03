@@ -1,5 +1,6 @@
 import { getPlayersWithAliases } from "@/lib/players";
 import PlayerList from "@/components/jogadores/PlayerList";
+import { TeamBadge } from "@/components/teams/TeamBadge";
 
 export default async function Jogadores() {
   const players = await getPlayersWithAliases();
@@ -11,6 +12,11 @@ export default async function Jogadores() {
       <p className="mt-2 mb-8 text-zinc-400">
         Base oficial do campeonato e aliases para melhorar os rankings.
       </p>
+
+      <div className="mb-8 flex flex-wrap gap-2">
+        <TeamBadge side="PEDRO" label="Pedro / São Paulo" withMascot />
+        <TeamBadge side="NETU" label="Netu / Palmeiras" withMascot />
+      </div>
 
       <PlayerList players={players} />
     </main>

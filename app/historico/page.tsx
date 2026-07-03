@@ -2,8 +2,10 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { TeamBadge } from "@/components/teams/TeamBadge";
 import { supabase } from "@/lib/supabase";
 import { deleteMatch, setMatchVerification } from "@/lib/matches";
+import { getTeamTheme, getWinnerLabel, getWinnerSide } from "@/utils/constants";
 
 type Match = {
   id: string;
@@ -143,10 +145,16 @@ export default function Historico() {
           </div>
         )}
 
-        {filteredMatches.map((match: Match) => (
+        {filteredMatches.map((match: Match) => {
+          const winnerSide = getWinnerSide(match.winner);
+          const winnerTeam = winnerSide ? getTeamTheme(winnerSide) : null;
+
+          return (
           <div
             key={match.id}
-            className="rounded-2xl border border-zinc-800 bg-zinc-900 p-4 sm:p-5"
+            className={`rounded-2xl border bg-zinc-900 p-4 sm:p-5 ${
+              winnerTeam ? winnerTeam.classes.border : "border-zinc-800"
+            }`}
           >
             <div className="flex-1">
               <p className="text-sm text-zinc-500">
@@ -154,26 +162,37 @@ export default function Historico() {
               </p>
 
               <div className="mt-2 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                <div>
-                  <p className="font-bold text-red-300">São Paulo / Pedro</p>
-                  <p className="font-bold text-green-300">Palmeiras / Netu</p>
+                <div className="flex flex-wrap gap-2">
+                  <TeamBadge side="PEDRO" label="Pedro / São Paulo" withMascot />
+                  <TeamBadge side="NETU" label="Netu / Palmeiras" withMascot />
                 </div>
 
                 <div className="text-3xl font-black sm:text-right">
-                  {match.pedro_goals} × {match.netu_goals}
+                  <span className="text-red-300">{match.pedro_goals}</span>
+                  <span className="mx-3 text-zinc-500">×</span>
+                  <span className="text-green-300">{match.netu_goals}</span>
                 </div>
               </div>
 
-              <p className="mt-3 text-sm text-zinc-400">
-                Vencedor: {match.winner || "Empatado"}
-              </p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                {winnerSide ? (
+                  <TeamBadge
+                    side={winnerSide}
+                    label={`Vencedor: ${getWinnerLabel(match.winner)}`}
+                  />
+                ) : (
+                  <span className="inline-flex items-center rounded-full border border-zinc-700 bg-zinc-950/70 px-3 py-1 text-sm font-bold text-zinc-300">
+                    Empate
+                  </span>
+                )}
 
-              <div className={`mt-3 inline-flex items-center rounded-full border px-3 py-1 text-sm ${
-                match.verified
-                  ? "border-green-800/50 bg-green-950/20 text-green-300"
-                  : "border-yellow-800/50 bg-yellow-950/20 text-yellow-300"
-              }`}>
-                {match.verified ? "✅ Conferida" : "⚠️ Pendente de conferência"}
+                <span className={`inline-flex items-center rounded-full border px-3 py-1 text-sm ${
+                  match.verified
+                    ? "border-green-800/50 bg-green-950/20 text-green-300"
+                    : "border-yellow-800/50 bg-yellow-950/20 text-yellow-300"
+                }`}>
+                  {match.verified ? "✅ Conferida" : "⚠️ Pendente de conferência"}
+                </span>
               </div>
             </div>
 
@@ -211,7 +230,8 @@ export default function Historico() {
               </Link>
             </div>
           </div>
-        ))}
+        );
+        })}
       </section>
     </main>
   );
