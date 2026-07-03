@@ -246,6 +246,16 @@ export default function Dashboard({ versionInfo }: DashboardProps) {
               {item.label}
             </Link>
           ))}
+
+          <Link
+            href="/projeto"
+            className="rounded-2xl border border-zinc-800 bg-zinc-900 px-5 py-4 text-left transition hover:border-zinc-500 hover:bg-zinc-800"
+          >
+            <span className="block font-bold">Projeto</span>
+            <span className="mt-1 block text-sm font-semibold text-zinc-400">
+              Roadmap, changelog e visão futura
+            </span>
+          </Link>
         </section>
       </section>
     </main>
