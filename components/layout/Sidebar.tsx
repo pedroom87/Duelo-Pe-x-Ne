@@ -79,14 +79,24 @@ export function Sidebar({ userEmail, profile, loginHref, onSignOut }: SidebarPro
         <p className="mt-2 truncate text-sm font-bold text-zinc-200">
           {userEmail ?? USER_PROFILE_LABELS[profile]}
         </p>
+
         {userEmail ? (
-          <button
-            type="button"
-            onClick={onSignOut}
-            className="mt-4 w-full rounded-xl border border-zinc-700 bg-zinc-950 px-4 py-3 text-sm font-bold text-zinc-200 transition hover:border-red-700 hover:text-red-200"
-          >
-            Sair
-          </button>
+          <div>
+            <Link
+              href="/definir-senha"
+              className="mt-4 block w-full rounded-xl border border-zinc-700 bg-zinc-950 px-4 py-3 text-center text-sm font-bold text-zinc-200 transition hover:border-zinc-500 hover:text-white"
+            >
+              Definir/alterar senha
+            </Link>
+
+            <button
+              type="button"
+              onClick={onSignOut}
+              className="mt-4 w-full rounded-xl border border-red-700 bg-zinc-950 px-4 py-3 text-sm font-bold text-zinc-200 transition hover:border-red-400 hover:text-white"
+            >
+              Sair
+            </button>
+          </div>
         ) : (
           <Link
             href={loginHref}
@@ -95,6 +105,7 @@ export function Sidebar({ userEmail, profile, loginHref, onSignOut }: SidebarPro
             Entrar
           </Link>
         )}
+
       </div>
     </aside>
   );
