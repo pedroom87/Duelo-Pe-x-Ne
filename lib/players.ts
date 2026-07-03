@@ -192,6 +192,78 @@ async function deletePlayerAliases(playerId: string) {
   if (error) throw error;
 }
 
+export type PlayerEventUsage = {
+  count: number;
+  latestMatchNumber: number;
+};
+
+export async function getPlayerEventUsageIndex(): Promise<{
+  usageByPlayerId: Record<string, PlayerEventUsage>;
+  hasAnyEvent: Set<string>;
+}> {
+  const [{ data: players, error: playersError }, { data: events, error: eventsError }] =
+    await Promise.all([
+      supabase.from("players").select("*").order("name"),
+      supabase
+        .from("events")
+        .select("player_id, player_name_raw, side, match_number"),
+    ]);
+
+  if (playersError) throw playersError;
+  if (eventsError) throw eventsError;
+
+  const playerList = (players ?? []) as Player[];
+  const eventList = (events ?? []) as PlayerUsageEvent[];
+  const byId = new Map(playerList.map((player) => [player.id, player]));
+
+  const usageMap = new Map<string, PlayerEventUsage>();
+
+  eventList.forEach((event) => {
+    let playerId: string | null = null;
+
+    if (event.player_id) {
+      playerId = event.player_id;
+    } else if (event.player_name_raw) {
+      const normalizedName = normalizeText(event.player_name_raw);
+      if (normalizedName) {
+        const matchingPlayer = playerList.find((player) => {
+          return (
+            normalizeText(player.name) === normalizedName &&
+            player.side === event.side
+          );
+        });
+
+        playerId = matchingPlayer?.id ?? null;
+      }
+    }
+
+    if (!playerId || !byId.has(playerId)) return;
+
+    const current = usageMap.get(playerId) ?? {
+      count: 0,
+      latestMatchNumber: 0,
+    };
+
+    current.count += 1;
+    current.latestMatchNumber = Math.max(
+      current.latestMatchNumber,
+      Number(event.match_number ?? 0)
+    );
+
+    usageMap.set(playerId, current);
+  });
+
+  const usageByPlayerId: Record<string, PlayerEventUsage> = {};
+  const hasAnyEvent = new Set<string>();
+
+  usageMap.forEach((value, key) => {
+    usageByPlayerId[key] = value;
+    hasAnyEvent.add(key);
+  });
+
+  return { usageByPlayerId, hasAnyEvent };
+}
+
 export async function getPlayersWithRecentUsage() {
   const [{ data: players, error: playersError }, { data: events, error: eventsError }] =
     await Promise.all([

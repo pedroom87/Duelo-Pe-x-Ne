@@ -9,19 +9,17 @@ export type VersionInfo = {
 };
 
 /**
- * Valores desta Sprint (Duel Legacy / 0.7.5)
- * Importante: não exibir commit no Dashboard (mantemos commit opcional/indisponível).
+ * Valores desta Sprint (Duel Legacy / 0.8.0)
  */
-const VERSION_NUMBER = "0.7.6";
-const VERSION_CODENAME = "Ajustes Mobile";
+const VERSION_NUMBER = "0.8.0";
+const VERSION_CODENAME = "Curadoria Inteligente";
 const VERSION_RELEASED_AT = "2026-07-03";
 const VERSION_COMMIT = null;
 const VERSION_HIGHLIGHTS = [
-  "Acesso mobile ao Perfil",
-  "Identidade Palmeiras mais equilibrada",
-  "Ajustes visuais no Dashboard",
+  "Curadoria inteligente de jogadores",
+  "Possíveis duplicados priorizados",
+  "Jogadores já consolidados ocultados da mesclagem",
 ];
-
 
 function getCommitFromEnv() {
   return (
