@@ -13,7 +13,12 @@ const items = [
   ["📥", "Importar Histórico", "/importar-historico"],
 ];
 
-export function Sidebar() {
+type SidebarProps = {
+  userEmail: string | null;
+  onSignOut: () => void;
+};
+
+export function Sidebar({ userEmail, onSignOut }: SidebarProps) {
   return (
     <aside className="min-h-screen w-72 border-r border-zinc-800 bg-zinc-950 p-6 text-white">
       <div className="mb-10">
@@ -66,6 +71,22 @@ export function Sidebar() {
             </div>
           );
         })}
+      </div>
+
+      <div className="mt-6 rounded-2xl border border-zinc-800 bg-zinc-900 p-4">
+        <p className="text-xs uppercase tracking-[0.2em] text-zinc-500">
+          Logado como
+        </p>
+        <p className="mt-2 truncate text-sm font-bold text-zinc-200">
+          {userEmail ?? "Carregando..."}
+        </p>
+        <button
+          type="button"
+          onClick={onSignOut}
+          className="mt-4 w-full rounded-xl border border-zinc-700 bg-zinc-950 px-4 py-3 text-sm font-bold text-zinc-200 transition hover:border-red-700 hover:text-red-200"
+        >
+          Sair
+        </button>
       </div>
     </aside>
   );

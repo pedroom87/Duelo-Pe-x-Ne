@@ -7,9 +7,24 @@ const items = [
   { label: "Rankings", href: "/rankings", icon: "🏆" },
 ];
 
-export function BottomNav() {
+type BottomNavProps = {
+  userEmail: string | null;
+  onSignOut: () => void;
+};
+
+export function BottomNav({ userEmail, onSignOut }: BottomNavProps) {
   return (
     <nav className="fixed inset-x-0 bottom-0 z-50 border-t border-zinc-800 bg-zinc-950/95 pb-[max(0.5rem,env(safe-area-inset-bottom))] backdrop-blur lg:hidden">
+      <div className="mx-auto flex max-w-4xl items-center justify-between gap-3 border-b border-zinc-800 px-3 py-2 text-[11px] text-zinc-400">
+        <span className="min-w-0 truncate">{userEmail ?? "Carregando..."}</span>
+        <button
+          type="button"
+          onClick={onSignOut}
+          className="shrink-0 rounded-full border border-zinc-700 px-3 py-1 font-bold text-zinc-200"
+        >
+          Sair
+        </button>
+      </div>
       <div className="mx-auto grid max-w-4xl grid-cols-4">
         {items.map((item) => (
           <Link
