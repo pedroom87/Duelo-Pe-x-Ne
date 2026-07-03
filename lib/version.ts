@@ -8,15 +8,15 @@ export type VersionInfo = {
   highlights: string[];
 };
 
-// Valores desta Sprint (Duel Legacy / 0.7.3)
-const VERSION_NUMBER = "0.7.3";
-const VERSION_CODENAME = "Internacionalização Base";
+// Valores desta Sprint (Duel Legacy / 0.7.4)
+const VERSION_NUMBER = "0.7.4";
+const VERSION_CODENAME = "Perfil do Usuário";
 const VERSION_RELEASED_AT = "2026-07-03";
 const VERSION_COMMIT = null;
 const VERSION_HIGHLIGHTS = [
-  "Estrutura inicial de múltiplos idiomas",
-  "Seletor de idioma em Português, Inglês e Espanhol",
-  "Base preparada para expansão internacional",
+  "Página de perfil do usuário autenticado",
+  "Nome de exibição e avatar configuráveis",
+  "Preferência de idioma preparada no perfil",
 ];
 
 

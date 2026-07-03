@@ -58,7 +58,9 @@ export function Sidebar({ userEmail, profile, loginHref, onSignOut }: SidebarPro
             className="flex items-center gap-3 rounded-xl px-4 py-3 font-bold text-zinc-300 hover:bg-zinc-900 hover:text-white"
           >
             <span>{icon}</span>
-            <span>{getNavItemLabel(href, label, t)}</span>
+            <span>
+              {href === "/perfil" ? t("common.profile") : getNavItemLabel(href, label, t)}
+            </span>
           </Link>
         ))}
       </nav>

@@ -1,5 +1,6 @@
 # Changelog
 
+- v0.7.4 — Perfil do Usuário
 - v0.7.3 — Internacionalização Base
 - v0.7.2 — Identidade visual do campeonato Duelo Pe × Ne
 - v0.7.0 — Rebranding base para Duel Legacy

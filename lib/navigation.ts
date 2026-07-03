@@ -57,6 +57,13 @@ export const APP_NAV_ITEMS: AppNavItem[] = [
     placements: ["sidebar", "dashboard"],
   },
   {
+    label: "Perfil",
+    href: "/perfil",
+    icon: "👤",
+    requiresAuth: true,
+    placements: ["sidebar"],
+  },
+  {
     label: "Importar Histórico",
     href: "/importar-historico",
     icon: "📥",
