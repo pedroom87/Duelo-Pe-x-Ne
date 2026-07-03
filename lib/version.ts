@@ -9,16 +9,16 @@ export type VersionInfo = {
 };
 
 /**
- * Valores desta Sprint (Duel Legacy / 0.8.0)
+ * Valores desta Sprint (Duel Legacy / 0.8.2)
  */
-const VERSION_NUMBER = "0.8.0";
-const VERSION_CODENAME = "Curadoria Inteligente";
+const VERSION_NUMBER = "0.8.2";
+const VERSION_CODENAME = "Edição de Jogadores";
 const VERSION_RELEASED_AT = "2026-07-03";
 const VERSION_COMMIT = null;
 const VERSION_HIGHLIGHTS = [
-  "Curadoria inteligente de jogadores",
-  "Possíveis duplicados priorizados",
-  "Jogadores já consolidados ocultados da mesclagem",
+  "Edição manual de jogadores",
+  "Correção de time/lado do jogador",
+  "Melhor distinção entre jogadores com nomes iguais",
 ];
 
 function getCommitFromEnv() {

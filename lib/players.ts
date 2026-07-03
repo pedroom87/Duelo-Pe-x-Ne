@@ -382,7 +382,10 @@ export async function searchPlayers(search: string) {
  * Cria um novo jogador se não existir com o mesmo nome e side
  * Retorna o jogador criado ou existente
  */
-export async function createPlayer(name: string, side: "PEDRO" | "NETU"): Promise<Player> {
+export async function createPlayer(
+  name: string,
+  side: "PEDRO" | "NETU"
+): Promise<Player> {
   const trimmedName = name.trim();
 
   if (!trimmedName) {
@@ -419,4 +422,35 @@ export async function createPlayer(name: string, side: "PEDRO" | "NETU"): Promis
   if (createError) throw createError;
 
   return newPlayer as Player;
+}
+
+export async function updatePlayerBasic(
+  playerId: string,
+  params: { name: string; side: "PEDRO" | "NETU" }
+): Promise<Player> {
+  const name = params.name.trim();
+
+  if (!playerId) {
+    throw new Error("ID do jogador inválido.");
+  }
+  if (!name) {
+    throw new Error("Nome do jogador não pode ficar vazio.");
+  }
+  if (params.side !== "PEDRO" && params.side !== "NETU") {
+    throw new Error("Lado/time inválido.");
+  }
+
+  const { data, error } = await supabase
+    .from("players")
+    .update({
+      name,
+      side: params.side,
+    })
+    .eq("id", playerId)
+    .select("id, name, side")
+    .single();
+
+  if (error) throw error;
+
+  return data as Player;
 }

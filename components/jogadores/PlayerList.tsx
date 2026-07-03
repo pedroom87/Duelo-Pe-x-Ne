@@ -6,6 +6,7 @@ import {
   getPlayersWithAliases,
   getPlayerDeletionPreview,
   getPlayerEventUsageIndex,
+  updatePlayerBasic,
   type ExistingPlayerDeletionPreview,
   type PlayerAlias,
   type PlayerWithAliases,
@@ -88,6 +89,13 @@ export default function PlayerList({ players }: Props) {
   const [deleteConfirmation, setDeleteConfirmation] = useState("");
   const [deleteLoadingId, setDeleteLoadingId] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<string | null>(null);
+
+  // Edição manual (name/side apenas)
+  const [editPlayerId, setEditPlayerId] = useState<string | null>(null);
+  const [editName, setEditName] = useState<string>("");
+  const [editSide, setEditSide] = useState<"PEDRO" | "NETU">("PEDRO");
+  const [editLoading, setEditLoading] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -352,10 +360,30 @@ export default function PlayerList({ players }: Props) {
             <p className="text-xs uppercase tracking-[0.2em] text-zinc-500">
               Nome oficial
             </p>
-            <h2 className="mt-1 text-xl font-bold">{player.name}</h2>
+            <h2 className="mt-1 text-xl font-bold">
+              {player.name}{" "}
+              <span className="ml-2 inline-flex text-xs font-semibold text-zinc-500">
+                ({player.id.slice(0, 6)})
+              </span>
+            </h2>
           </div>
 
-          <TeamBadge side={side} withMascot />
+          <div className="flex flex-col items-end gap-2">
+            <TeamBadge side={side} withMascot />
+            <button
+              type="button"
+              disabled={dim}
+              onClick={() => {
+                setEditPlayerId(player.id);
+                setEditName(player.name);
+                setEditSide(player.side as "PEDRO" | "NETU");
+                setEditError(null);
+              }}
+              className="rounded-lg bg-zinc-800 px-4 py-2 text-xs font-bold text-zinc-100 transition hover:bg-zinc-700 disabled:opacity-50"
+            >
+              Editar
+            </button>
+          </div>
         </div>
 
         <p className="mt-2 text-sm text-zinc-400">{team.club}</p>
@@ -420,6 +448,40 @@ export default function PlayerList({ players }: Props) {
         </button>
       </div>
     );
+  }
+
+  async function fecharModalEdicao() {
+    setEditPlayerId(null);
+    setEditError(null);
+    setEditName("");
+    setEditLoading(false);
+    setEditSide("PEDRO");
+  }
+
+  async function salvarEdicao() {
+    if (!editPlayerId) return;
+
+    try {
+      setEditLoading(true);
+      setEditError(null);
+
+      if (!editName.trim()) {
+        setEditError("Nome do jogador é obrigatório.");
+        return;
+      }
+
+      const trimmed = editName.trim();
+      await updatePlayerBasic(editPlayerId, { name: trimmed, side: editSide });
+
+      await recarregarJogadores();
+      await fecharModalEdicao();
+      setFeedback("Jogador atualizado com sucesso.");
+    } catch (error: unknown) {
+      const message = formatSupabaseError(error, "Erro ao editar jogador.");
+      setEditError(message);
+    } finally {
+      setEditLoading(false);
+    }
   }
 
   return (
@@ -630,6 +692,73 @@ export default function PlayerList({ players }: Props) {
                 className="flex-1 rounded-lg bg-red-700 px-4 py-3 font-bold text-white transition hover:bg-red-600 disabled:opacity-50"
               >
                 {deleteLoadingId === deletionPreview.player.id ? "Excluindo..." : "Excluir"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {editPlayerId ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
+          <div className="w-full max-w-md rounded-2xl border border-zinc-800 bg-zinc-950 p-5 text-white shadow-2xl">
+            <h2 className="text-2xl font-black">Editar jogador</h2>
+
+            <p className="mt-2 text-sm text-zinc-400">
+              Esta edição altera apenas <span className="font-semibold text-zinc-200">nome</span> e{" "}
+              <span className="font-semibold text-zinc-200">lado</span>. Eventos e aliases permanecem ligados ao mesmo ID.
+            </p>
+
+            <div className="mt-5 space-y-4 text-sm">
+              <label className="block text-zinc-300">
+                Nome
+                <input
+                  value={editName}
+                  onChange={(event) => setEditName(event.target.value)}
+                  className="mt-2 w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-3 text-white"
+                  autoFocus
+                />
+              </label>
+
+              <label className="block text-zinc-300">
+                Lado
+                <select
+                  value={editSide}
+                  onChange={(event) => setEditSide(event.target.value as "PEDRO" | "NETU")}
+                  className="mt-2 w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-3 text-white"
+                >
+                  <option value="PEDRO">Pedro (São Paulo)</option>
+                  <option value="NETU">Netu (Palmeiras)</option>
+                </select>
+              </label>
+
+              {editError ? (
+                <p className="rounded-xl border border-red-800 bg-red-950/30 px-4 py-3 text-sm text-red-200">
+                  {editError}
+                </p>
+              ) : null}
+
+              <p className="rounded-xl border border-yellow-800 bg-yellow-950/30 px-4 py-3 text-sm text-yellow-200">
+                Dica: se já existir outro jogador com o mesmo nome, mantenha o lado correto para reduzir confusões.
+              </p>
+            </div>
+
+            <div className="mt-6 flex flex-col gap-2 sm:flex-row">
+              <button
+                type="button"
+                onClick={fecharModalEdicao}
+                disabled={editLoading}
+                className="flex-1 rounded-lg border border-zinc-700 bg-zinc-900 px-4 py-3 font-bold text-zinc-200 transition hover:bg-zinc-800 disabled:opacity-50"
+              >
+                Cancelar
+              </button>
+
+              <button
+                type="button"
+                onClick={salvarEdicao}
+                disabled={editLoading}
+                className="flex-1 rounded-lg bg-blue-700 px-4 py-3 font-bold text-white transition hover:bg-blue-600 disabled:opacity-50"
+              >
+                {editLoading ? "Salvando..." : "Salvar"}
               </button>
             </div>
           </div>
