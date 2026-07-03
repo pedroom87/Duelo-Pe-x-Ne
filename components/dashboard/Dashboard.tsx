@@ -217,12 +217,6 @@ export default function Dashboard({ versionInfo }: DashboardProps) {
               </span>
             </p>
 
-            <p>
-              Último commit:{" "}
-              <span className="font-mono font-bold text-white">
-                {versionInfo.commit ?? "indisponível"}
-              </span>
-            </p>
 
             <div className="pt-2">
               <p className="text-xs font-bold uppercase tracking-[0.25em] text-zinc-400">
