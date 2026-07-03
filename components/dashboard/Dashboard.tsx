@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Image from "next/image";
 import Link from "next/link";
 import { useAccess } from "@/components/auth/AccessContext";
 import { TeamBadge } from "@/components/teams/TeamBadge";
@@ -37,6 +38,8 @@ type StatCard = {
   value: number | string;
   side?: TeamSide;
 };
+
+const CHAMPIONSHIP_MASCOTS_IMAGE = "/mascotes/duelo-mascotes.png";
 
 export default function Dashboard({ versionInfo }: DashboardProps) {
   const { profile } = useAccess();
@@ -95,6 +98,78 @@ export default function Dashboard({ versionInfo }: DashboardProps) {
             <TeamBadge side="NETU" label="Netu" withMascot />
           </div>
         </header>
+
+        <section className="mb-8 overflow-hidden rounded-3xl border border-zinc-800 bg-zinc-900">
+          <div className="relative min-h-[26rem] sm:min-h-[23rem] lg:min-h-[20rem]">
+            <div className="absolute inset-x-0 top-0 h-60 overflow-hidden lg:inset-y-0 lg:left-auto lg:right-0 lg:h-auto lg:w-[54%]">
+              <Image
+                src={CHAMPIONSHIP_MASCOTS_IMAGE}
+                alt="Mascotes do campeonato Duelo Pe × Ne"
+                fill
+                priority
+                sizes="(min-width: 1024px) 52vw, 100vw"
+                className="object-cover opacity-85"
+                style={{
+                  objectPosition: "center top",
+                  transform: "scale(1.08)",
+                  transformOrigin: "top center",
+                }}
+              />
+              <div className="absolute inset-0 bg-gradient-to-b from-transparent from-25% via-zinc-950/85 via-60% to-zinc-950 lg:bg-gradient-to-l lg:from-zinc-950/10 lg:via-zinc-950/70 lg:to-zinc-900" />
+              <div className="absolute inset-x-0 bottom-0 h-40 bg-zinc-950/95 lg:h-44" />
+            </div>
+
+            <div className="relative z-10 flex min-h-[26rem] flex-col justify-end p-5 sm:min-h-[23rem] sm:p-8 lg:min-h-[20rem] lg:w-[58%] lg:justify-center">
+              <p className="text-xs font-bold uppercase tracking-[0.35em] text-zinc-500">
+                Produto global
+              </p>
+              <h2 className="mt-3 text-3xl font-black tracking-tight sm:text-4xl">
+                Duel Legacy
+              </h2>
+
+              <div className="mt-6 grid gap-3 sm:grid-cols-2">
+                <div className="rounded-2xl border border-zinc-800 bg-zinc-950/85 p-4">
+                  <p className="text-xs font-bold uppercase tracking-[0.25em] text-zinc-500">
+                    Campeonato atual
+                  </p>
+                  <p className="mt-2 text-xl font-black">Duelo Pe × Ne</p>
+                </div>
+
+                <div className="rounded-2xl border border-zinc-800 bg-zinc-950/85 p-4">
+                  <p className="text-xs font-bold uppercase tracking-[0.25em] text-zinc-500">
+                    Rivalidade
+                  </p>
+                  <p className="mt-2 text-xl font-black">Pedro × Netu</p>
+                </div>
+              </div>
+
+              <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                <div className="rounded-2xl border border-red-800/60 bg-red-950/25 p-4">
+                  <p className="text-xs font-bold uppercase tracking-[0.25em] text-red-200">
+                    Pedro
+                  </p>
+                  <p className="mt-1 font-black text-white">São Paulo</p>
+                  <div className="mt-3 grid grid-cols-[1fr_1fr_1fr] gap-1">
+                    <span className="h-1 rounded-full bg-red-600" />
+                    <span className="h-1 rounded-full bg-white" />
+                    <span className="h-1 rounded-full bg-zinc-800" />
+                  </div>
+                </div>
+
+                <div className="rounded-2xl border border-green-800/60 bg-green-950/25 p-4">
+                  <p className="text-xs font-bold uppercase tracking-[0.25em] text-green-200">
+                    Netu
+                  </p>
+                  <p className="mt-1 font-black text-white">Palmeiras</p>
+                  <div className="mt-3 grid grid-cols-[2fr_1fr] gap-1">
+                    <span className="h-1 rounded-full bg-green-600" />
+                    <span className="h-1 rounded-full bg-white" />
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
 
         <section className="grid gap-4 sm:grid-cols-2">
           {TEAM_ORDER.map((side) => {

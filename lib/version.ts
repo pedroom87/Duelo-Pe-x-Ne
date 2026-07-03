@@ -8,15 +8,15 @@ export type VersionInfo = {
   highlights: string[];
 };
 
-// Valores desta Sprint (Duel Legacy / 0.7.0)
-const VERSION_NUMBER = "0.7.0";
-const VERSION_CODENAME = "Duel Legacy";
+// Valores desta Sprint (Duel Legacy / 0.7.2)
+const VERSION_NUMBER = "0.7.2";
+const VERSION_CODENAME = "Identidade do Campeonato";
 const VERSION_RELEASED_AT = "2026-07-03";
 const VERSION_COMMIT = null;
 const VERSION_HIGHLIGHTS = [
-  "Rebranding base para Duel Legacy",
-  "Separação entre produto e campeonato",
-  "Preparação para expansão futura",
+  "Identidade visual do campeonato Duelo Pe × Ne",
+  "Mascotes aplicados ao Dashboard",
+  "Separação visual entre produto e campeonato",
 ];
 
 
@@ -59,4 +59,3 @@ export async function getVersionInfo(): Promise<VersionInfo> {
     highlights: VERSION_HIGHLIGHTS,
   };
 }
-
