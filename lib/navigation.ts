@@ -63,6 +63,13 @@ export const APP_NAV_ITEMS: AppNavItem[] = [
     requiresAuth: true,
     placements: ["sidebar"],
   },
+  {
+    label: "Projeto",
+    href: "/projeto",
+    icon: "🧭",
+    requiresAuth: false,
+    placements: ["sidebar"],
+  },
 ];
 
 export function getVisibleNavItems(
