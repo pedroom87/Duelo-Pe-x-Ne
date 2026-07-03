@@ -14,6 +14,7 @@ import { getVisibleNavItems } from "@/lib/navigation";
 import type { VersionInfo } from "@/lib/version";
 import { TEAM_ORDER, getTeamTheme, type TeamSide } from "@/utils/constants";
 
+
 type DashboardProps = {
   versionInfo: VersionInfo;
 };
@@ -190,15 +191,47 @@ export default function Dashboard({ versionInfo }: DashboardProps) {
             <p>
               Versão atual:{" "}
               <span className="font-mono font-bold text-white">
-                {versionInfo.version}
+                v{versionInfo.number}
               </span>
             </p>
+
+            <p>
+              Codinome:{" "}
+              <span className="font-mono font-bold text-white">
+                {versionInfo.codename}
+              </span>
+            </p>
+
+            <p>
+              Data:{" "}
+              <span className="font-mono font-bold text-white">
+                {(() => {
+                  const [yyyy, mm, dd] = versionInfo.releasedAt.split("-");
+                  return dd && mm && yyyy ? `${dd}/${mm}/${yyyy}` : versionInfo.releasedAt;
+                })()}
+              </span>
+            </p>
+
             <p>
               Último commit:{" "}
               <span className="font-mono font-bold text-white">
                 {versionInfo.commit ?? "indisponível"}
               </span>
             </p>
+
+            <div className="pt-2">
+              <p className="text-xs font-bold uppercase tracking-[0.25em] text-zinc-400">
+                Principais novidades
+              </p>
+              <ul className="mt-2 space-y-1">
+                {versionInfo.highlights.map((h) => (
+                  <li key={h} className="flex items-start gap-2">
+                    <span className="mt-1 h-1.5 w-1.5 rounded-full bg-zinc-300" />
+                    <span>{h}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
           </div>
         </section>
 
