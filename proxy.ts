@@ -1,16 +1,14 @@
 import { createServerClient } from "@supabase/ssr";
 import { type NextRequest, NextResponse } from "next/server";
+import {
+  canAccessRoute,
+  getProfileForUserEmail,
+  getSafeNextPath,
+} from "@/lib/auth/permissions";
 import { getSupabaseConfig } from "@/lib/supabaseConfig";
 
-function getSafeNextPath(value: string | null) {
-  if (!value || !value.startsWith("/") || value.startsWith("//")) return "/";
-  if (value.startsWith("/login")) return "/";
-
-  return value;
-}
-
 export async function proxy(request: NextRequest) {
-  const { pathname, search } = request.nextUrl;
+  const { pathname } = request.nextUrl;
   const { url, anonKey } = getSupabaseConfig();
   const requestHeaders = new Headers(request.headers);
 
@@ -50,14 +48,14 @@ export async function proxy(request: NextRequest) {
   const {
     data: { user },
   } = await supabase.auth.getUser();
+  const profile = getProfileForUserEmail(user?.email);
 
-  if (!user && pathname !== "/login") {
-    const redirectUrl = request.nextUrl.clone();
-    redirectUrl.pathname = "/login";
-    redirectUrl.search = "";
-    redirectUrl.searchParams.set("next", `${pathname}${search}`);
+  if (!canAccessRoute(profile, pathname)) {
+    const forbiddenUrl = request.nextUrl.clone();
+    forbiddenUrl.pathname = "/403";
+    forbiddenUrl.search = "";
 
-    return NextResponse.redirect(redirectUrl);
+    return NextResponse.rewrite(forbiddenUrl, { status: 403 });
   }
 
   if (user && pathname === "/login") {

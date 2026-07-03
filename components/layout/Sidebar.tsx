@@ -1,24 +1,23 @@
 import Link from "next/link";
 import { TeamBadge } from "@/components/teams/TeamBadge";
 import { TeamMascot } from "@/components/teams/TeamMascot";
+import {
+  USER_PROFILE_LABELS,
+  type UserProfile,
+} from "@/lib/auth/permissions";
+import { getVisibleNavItems } from "@/lib/navigation";
 import { TEAM_ORDER, getTeamTheme } from "@/utils/constants";
-
-const items = [
-  ["🏠", "Dashboard", "/"],
-  ["⚽", "Nova Partida", "/partidas/nova"],
-  ["📖", "Histórico", "/historico"],
-  ["🏆", "Rankings", "/rankings"],
-  ["🟨", "Disciplina", "/disciplina"],
-  ["👥", "Jogadores", "/jogadores"],
-  ["📥", "Importar Histórico", "/importar-historico"],
-];
 
 type SidebarProps = {
   userEmail: string | null;
+  profile: UserProfile;
+  loginHref: string;
   onSignOut: () => void;
 };
 
-export function Sidebar({ userEmail, onSignOut }: SidebarProps) {
+export function Sidebar({ userEmail, profile, loginHref, onSignOut }: SidebarProps) {
+  const items = getVisibleNavItems(profile, "sidebar");
+
   return (
     <aside className="min-h-screen w-72 border-r border-zinc-800 bg-zinc-950 p-6 text-white">
       <div className="mb-10">
@@ -40,7 +39,7 @@ export function Sidebar({ userEmail, onSignOut }: SidebarProps) {
       </div>
 
       <nav className="space-y-2">
-        {items.map(([icon, label, href]) => (
+        {items.map(({ icon, label, href }) => (
           <Link
             key={href}
             href={href}
@@ -75,18 +74,27 @@ export function Sidebar({ userEmail, onSignOut }: SidebarProps) {
 
       <div className="mt-6 rounded-2xl border border-zinc-800 bg-zinc-900 p-4">
         <p className="text-xs uppercase tracking-[0.2em] text-zinc-500">
-          Logado como
+          Perfil
         </p>
         <p className="mt-2 truncate text-sm font-bold text-zinc-200">
-          {userEmail ?? "Carregando..."}
+          {userEmail ?? USER_PROFILE_LABELS[profile]}
         </p>
-        <button
-          type="button"
-          onClick={onSignOut}
-          className="mt-4 w-full rounded-xl border border-zinc-700 bg-zinc-950 px-4 py-3 text-sm font-bold text-zinc-200 transition hover:border-red-700 hover:text-red-200"
-        >
-          Sair
-        </button>
+        {userEmail ? (
+          <button
+            type="button"
+            onClick={onSignOut}
+            className="mt-4 w-full rounded-xl border border-zinc-700 bg-zinc-950 px-4 py-3 text-sm font-bold text-zinc-200 transition hover:border-red-700 hover:text-red-200"
+          >
+            Sair
+          </button>
+        ) : (
+          <Link
+            href={loginHref}
+            className="mt-4 block w-full rounded-xl border border-zinc-700 bg-zinc-950 px-4 py-3 text-center text-sm font-bold text-zinc-200 transition hover:border-red-700 hover:text-red-200"
+          >
+            Entrar
+          </Link>
+        )}
       </div>
     </aside>
   );

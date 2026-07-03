@@ -2,22 +2,23 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { useAccess } from "@/components/auth/AccessContext";
 import { TeamBadge } from "@/components/teams/TeamBadge";
-import { supabase } from "@/lib/supabase";
-import { deleteMatch, setMatchVerification } from "@/lib/matches";
+import {
+  deleteMatch,
+  getMatchHistory,
+  setMatchVerification,
+  type MatchHistoryItem,
+} from "@/lib/matches";
 import { getTeamTheme, getWinnerLabel, getWinnerSide } from "@/utils/constants";
 
-type Match = {
-  id: string;
-  match_number: number;
-  pedro_goals: number;
-  netu_goals: number;
-  winner: string;
-  verified: boolean;
-};
+function getErrorMessage(error: unknown) {
+  return error instanceof Error ? error.message : "Erro desconhecido";
+}
 
 export default function Historico() {
-  const [matches, setMatches] = useState<Match[]>([]);
+  const { canManageAdministrativeActions } = useAccess();
+  const [matches, setMatches] = useState<MatchHistoryItem[]>([]);
   const [filter, setFilter] = useState<"all" | "pending" | "verified">("all");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -27,20 +28,11 @@ export default function Historico() {
   async function carregarHistorico() {
     try {
       setLoading(true);
-      const { data, error: err } = await supabase
-        .from("matches")
-        .select("id, match_number, pedro_goals, netu_goals, winner, verified")
-        .order("match_number", { ascending: false });
-
-      if (err) {
-        setError(`Erro ao carregar histórico: ${err.message}`);
-        return;
-      }
-
-      setMatches(data || []);
+      const data = await getMatchHistory();
+      setMatches(data);
       setError(null);
-    } catch (err: any) {
-      setError(`Erro: ${err.message}`);
+    } catch (err: unknown) {
+      setError(`Erro: ${getErrorMessage(err)}`);
     } finally {
       setLoading(false);
     }
@@ -56,15 +48,15 @@ export default function Historico() {
     return true;
   });
 
-  async function toggleVerification(match: Match) {
+  async function toggleVerification(match: MatchHistoryItem) {
     try {
       setUpdatingVerification(match.id);
       await setMatchVerification(match.id, !match.verified);
       setMatches((current) =>
         current.map((item) => (item.id === match.id ? { ...item, verified: !item.verified } : item))
       );
-    } catch (err: any) {
-      alert(`Erro ao atualizar conferência: ${err.message}`);
+    } catch (err: unknown) {
+      alert(`Erro ao atualizar conferência: ${getErrorMessage(err)}`);
     } finally {
       setUpdatingVerification(null);
     }
@@ -82,10 +74,10 @@ export default function Historico() {
     try {
       setDeletando(id);
       await deleteMatch(id);
-      setMatches(matches.filter((m) => m.id !== id));
+      setMatches((current) => current.filter((m) => m.id !== id));
       alert(`Jogo #${matchNumber} deletado com sucesso!`);
-    } catch (err: any) {
-      alert(`Erro ao deletar: ${err.message}`);
+    } catch (err: unknown) {
+      alert(`Erro ao deletar: ${getErrorMessage(err)}`);
       console.error(err);
     } finally {
       setDeletando(null);
@@ -145,7 +137,7 @@ export default function Historico() {
           </div>
         )}
 
-        {filteredMatches.map((match: Match) => {
+        {filteredMatches.map((match) => {
           const winnerSide = getWinnerSide(match.winner);
           const winnerTeam = winnerSide ? getTeamTheme(winnerSide) : null;
 
@@ -196,39 +188,41 @@ export default function Historico() {
               </div>
             </div>
 
-            <div className="mt-4 flex flex-col gap-2 sm:ml-4 sm:flex-row">
-              <button
-                onClick={() => excluirPartida(match.id, match.match_number)}
-                disabled={deletando === match.id}
-                className="rounded-xl border border-red-700 bg-red-900/30 px-4 py-2 text-red-300 transition hover:bg-red-900/50 disabled:opacity-50"
-              >
-                {deletando === match.id ? "Deletando..." : "🗑️ Excluir"}
-              </button>
+            {canManageAdministrativeActions ? (
+              <div className="mt-4 flex flex-col gap-2 sm:ml-4 sm:flex-row">
+                <button
+                  onClick={() => excluirPartida(match.id, match.match_number)}
+                  disabled={deletando === match.id}
+                  className="rounded-xl border border-red-700 bg-red-900/30 px-4 py-2 text-red-300 transition hover:bg-red-900/50 disabled:opacity-50"
+                >
+                  {deletando === match.id ? "Deletando..." : "🗑️ Excluir"}
+                </button>
 
-              <button
-                type="button"
-                onClick={() => toggleVerification(match)}
-                disabled={updatingVerification === match.id}
-                className={`rounded-xl border px-4 py-2 text-sm transition ${
-                  match.verified
-                    ? "border-zinc-700 bg-zinc-800 text-zinc-300"
-                    : "border-yellow-700 bg-yellow-900/30 text-yellow-200"
-                } disabled:opacity-50`}
-              >
-                {updatingVerification === match.id
-                  ? "Atualizando..."
-                  : match.verified
-                    ? "Desmarcar conferência"
-                    : "Marcar como conferida"}
-              </button>
+                <button
+                  type="button"
+                  onClick={() => toggleVerification(match)}
+                  disabled={updatingVerification === match.id}
+                  className={`rounded-xl border px-4 py-2 text-sm transition ${
+                    match.verified
+                      ? "border-zinc-700 bg-zinc-800 text-zinc-300"
+                      : "border-yellow-700 bg-yellow-900/30 text-yellow-200"
+                  } disabled:opacity-50`}
+                >
+                  {updatingVerification === match.id
+                    ? "Atualizando..."
+                    : match.verified
+                      ? "Desmarcar conferência"
+                      : "Marcar como conferida"}
+                </button>
 
-              <Link
-                href={`/historico/${match.id}/editar`}
-                className="rounded-xl border border-blue-700 bg-blue-900/30 px-4 py-2 text-center text-blue-300 transition hover:bg-blue-900/50"
-              >
-                ✏️ Editar
-              </Link>
-            </div>
+                <Link
+                  href={`/historico/${match.id}/editar`}
+                  className="rounded-xl border border-blue-700 bg-blue-900/30 px-4 py-2 text-center text-blue-300 transition hover:bg-blue-900/50"
+                >
+                  ✏️ Editar
+                </Link>
+              </div>
+            ) : null}
           </div>
         );
         })}

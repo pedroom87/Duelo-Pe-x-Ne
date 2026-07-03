@@ -4,15 +4,22 @@ import { FormEvent, useState } from "react";
 import { useRouter } from "next/navigation";
 import { TeamMascot } from "@/components/teams/TeamMascot";
 import { getSupabaseBrowserClient } from "@/lib/auth/browser";
+import {
+  canAccessRoute,
+  getSafeNextPath as getSafeNextPathValue,
+  USER_PROFILES,
+} from "@/lib/auth/permissions";
 
-function getSafeNextPath() {
+function getCurrentSafeNextPath() {
   if (typeof window === "undefined") return "/";
 
-  const next = new URLSearchParams(window.location.search).get("next");
-  if (!next || !next.startsWith("/") || next.startsWith("//")) return "/";
-  if (next.startsWith("/login")) return "/";
+  return getSafeNextPathValue(new URLSearchParams(window.location.search).get("next"));
+}
 
-  return next;
+function getVisitorNextPath() {
+  const next = getCurrentSafeNextPath();
+
+  return canAccessRoute(USER_PROFILES.VISITANTE, next) ? next : "/403";
 }
 
 export default function LoginPage() {
@@ -40,7 +47,12 @@ export default function LoginPage() {
       return;
     }
 
-    router.replace(getSafeNextPath());
+    router.replace(getCurrentSafeNextPath());
+    router.refresh();
+  }
+
+  function handleContinueAsVisitor() {
+    router.replace(getVisitorNextPath());
     router.refresh();
   }
 
@@ -98,6 +110,14 @@ export default function LoginPage() {
               className="w-full rounded-xl bg-red-700 px-6 py-4 text-lg font-black text-white transition hover:bg-red-600 disabled:opacity-50"
             >
               {loading ? "Entrando..." : "Entrar"}
+            </button>
+
+            <button
+              type="button"
+              onClick={handleContinueAsVisitor}
+              className="w-full rounded-xl border border-zinc-700 bg-zinc-950 px-6 py-4 text-lg font-black text-zinc-200 transition hover:border-green-700 hover:text-green-200"
+            >
+              Continuar como visitante
             </button>
           </form>
         </div>

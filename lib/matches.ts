@@ -26,6 +26,22 @@ export interface Match {
   created_at: string;
 }
 
+export type MatchHistoryItem = Pick<
+  Match,
+  "id" | "match_number" | "pedro_goals" | "netu_goals" | "winner" | "verified"
+>;
+
+export async function getMatchHistory() {
+  const { data, error } = await supabase
+    .from("matches")
+    .select("id, match_number, pedro_goals, netu_goals, winner, verified")
+    .order("match_number", { ascending: false });
+
+  if (error) throw error;
+
+  return (data ?? []) as MatchHistoryItem[];
+}
+
 export async function getNextMatchNumber() {
   const { data } = await supabase
     .from("matches")

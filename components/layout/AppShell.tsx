@@ -3,6 +3,11 @@
 import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import { usePathname, useRouter } from "next/navigation";
+import { AccessProvider } from "@/components/auth/AccessContext";
+import {
+  canAccessRoute,
+  getProfileForUserEmail,
+} from "@/lib/auth/permissions";
 import { getSupabaseBrowserClient } from "@/lib/auth/browser";
 import { BottomNav } from "./BottomNav";
 import { Sidebar } from "./Sidebar";
@@ -17,6 +22,11 @@ export function AppShell({ children, initialEmail }: AppShellProps) {
   const router = useRouter();
   const [userEmail, setUserEmail] = useState(initialEmail);
   const isLoginRoute = pathname === "/login";
+  const profile = getProfileForUserEmail(userEmail);
+  const loginHref =
+    pathname && pathname !== "/403"
+      ? `/login?next=${encodeURIComponent(pathname)}`
+      : "/login";
 
   useEffect(() => {
     if (isLoginRoute) return;
@@ -26,17 +36,24 @@ export function AppShell({ children, initialEmail }: AppShellProps) {
 
     supabase.auth.getUser().then(({ data }) => {
       if (active) {
-        setUserEmail(data.user?.email ?? null);
+        const nextEmail = data.user?.email ?? null;
+        setUserEmail(nextEmail);
+
+        if (!canAccessRoute(getProfileForUserEmail(nextEmail), pathname)) {
+          router.replace("/403");
+          router.refresh();
+        }
       }
     });
 
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, session) => {
-      setUserEmail(session?.user.email ?? null);
+      const nextEmail = session?.user.email ?? null;
+      setUserEmail(nextEmail);
 
-      if (!session) {
-        router.replace("/login");
+      if (!canAccessRoute(getProfileForUserEmail(nextEmail), pathname)) {
+        router.replace("/403");
         router.refresh();
       }
     });
@@ -45,7 +62,7 @@ export function AppShell({ children, initialEmail }: AppShellProps) {
       active = false;
       subscription.unsubscribe();
     };
-  }, [isLoginRoute, router]);
+  }, [isLoginRoute, pathname, router]);
 
   async function handleSignOut() {
     const supabase = getSupabaseBrowserClient();
@@ -61,13 +78,25 @@ export function AppShell({ children, initialEmail }: AppShellProps) {
 
   return (
     <>
-      <div className="flex min-h-screen bg-zinc-950">
-        <div className="hidden lg:block">
-          <Sidebar userEmail={userEmail} onSignOut={handleSignOut} />
+      <AccessProvider userEmail={userEmail}>
+        <div className="flex min-h-screen bg-zinc-950">
+          <div className="hidden lg:block">
+            <Sidebar
+              userEmail={userEmail}
+              profile={profile}
+              loginHref={loginHref}
+              onSignOut={handleSignOut}
+            />
+          </div>
+          <div className="flex-1 pb-28 lg:pb-0">{children}</div>
         </div>
-        <div className="flex-1 pb-28 lg:pb-0">{children}</div>
-      </div>
-      <BottomNav userEmail={userEmail} onSignOut={handleSignOut} />
+        <BottomNav
+          userEmail={userEmail}
+          profile={profile}
+          loginHref={loginHref}
+          onSignOut={handleSignOut}
+        />
+      </AccessProvider>
     </>
   );
 }

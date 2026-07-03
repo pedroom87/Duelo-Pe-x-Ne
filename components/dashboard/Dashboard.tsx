@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { useAccess } from "@/components/auth/AccessContext";
 import { TeamBadge } from "@/components/teams/TeamBadge";
 import { TeamMascot } from "@/components/teams/TeamMascot";
 import {
@@ -9,6 +10,7 @@ import {
   type DashboardStats,
   type VerificationStats,
 } from "@/lib/dashboard";
+import { getVisibleNavItems } from "@/lib/navigation";
 import type { VersionInfo } from "@/lib/version";
 import { TEAM_ORDER, getTeamTheme, type TeamSide } from "@/utils/constants";
 
@@ -29,14 +31,6 @@ const emptyVerificationStats: VerificationStats = {
   pending: 0,
 };
 
-const navItems = [
-  { label: "Nova Partida", href: "/partidas/nova" },
-  { label: "Histórico", href: "/historico" },
-  { label: "Rankings", href: "/rankings" },
-  { label: "Disciplina", href: "/disciplina" },
-  { label: "Jogadores", href: "/jogadores" },
-];
-
 type StatCard = {
   label: string;
   value: number | string;
@@ -44,11 +38,13 @@ type StatCard = {
 };
 
 export default function Dashboard({ versionInfo }: DashboardProps) {
+  const { profile } = useAccess();
   const [stats, setStats] = useState<DashboardStats>(emptyStats);
   const [verificationStats, setVerificationStats] =
     useState<VerificationStats>(emptyVerificationStats);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const navItems = getVisibleNavItems(profile, "dashboard");
 
   useEffect(() => {
     async function carregarEstatisticas() {
