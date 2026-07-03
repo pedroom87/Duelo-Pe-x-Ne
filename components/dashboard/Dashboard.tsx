@@ -79,9 +79,14 @@ export default function Dashboard({ versionInfo }: DashboardProps) {
             <p className="text-xs uppercase tracking-[0.35em] text-zinc-400 sm:text-sm">
               São Paulo x Palmeiras
             </p>
-            <h1 className="mt-2 text-3xl font-black tracking-tight sm:text-4xl">
-              Duelo Pe X Ne
-            </h1>
+              <h1 className="mt-2 text-3xl font-black tracking-tight sm:text-4xl">
+                Duel Legacy
+              </h1>
+
+              <p className="mt-2 text-xs uppercase tracking-[0.35em] text-zinc-400 sm:text-sm">
+                Duelo Pe × Ne
+              </p>
+
             </div>
           </div>
 

@@ -71,7 +71,16 @@ export default function LoginPage() {
           <p className="text-xs font-bold uppercase tracking-[0.3em] text-zinc-500">
             Acesso restrito
           </p>
-          <h1 className="mt-3 text-3xl font-black">Duelo Pe X Ne</h1>
+          <h1 className="mt-3 text-3xl font-black">Duel Legacy</h1>
+
+          <p className="mt-2 text-center text-sm text-zinc-300">
+            Every Rivalry Deserves a Legacy
+          </p>
+
+          <p className="mt-3 text-center text-xs font-bold uppercase tracking-[0.3em] text-zinc-500">
+            Campeonato: Duelo Pe × Ne
+          </p>
+
 
           <form onSubmit={handleSubmit} className="mt-8 space-y-4">
             <label className="block">

@@ -4,20 +4,21 @@ export type VersionInfo = {
   number: string;
   codename: string;
   releasedAt: string; // YYYY-MM-DD
-  commit: string | null;
+  commit?: string | null;
   highlights: string[];
 };
 
-// Valores desta Sprint (Duelo Legacy / 0.6.1)
-const VERSION_NUMBER = "0.6.1";
-const VERSION_CODENAME = "Modo Visitante";
-const VERSION_RELEASED_AT = "2026-07-01";
-const VERSION_COMMIT = "01f76af";
+// Valores desta Sprint (Duel Legacy / 0.7.0)
+const VERSION_NUMBER = "0.7.0";
+const VERSION_CODENAME = "Duel Legacy";
+const VERSION_RELEASED_AT = "2026-07-03";
+const VERSION_COMMIT = null;
 const VERSION_HIGHLIGHTS = [
-  "Modo visitante público",
-  "Login com Supabase Auth",
-  "Áreas administrativas protegidas",
+  "Rebranding base para Duel Legacy",
+  "Separação entre produto e campeonato",
+  "Preparação para expansão futura",
 ];
+
 
 function getCommitFromEnv() {
   return (
@@ -41,8 +42,9 @@ function getCommitFromGit() {
 }
 
 function getCommit(): string | null {
-  // Preferir o commit fixado da Sprint para garantir consistência visual.
-  if (VERSION_COMMIT) return VERSION_COMMIT;
+  // Nesta Sprint, não queremos exibir commit em "release card".
+  // Mantemos a função apenas para compatibilidade interna.
+  if (!VERSION_COMMIT) return null;
 
   const commit = getCommitFromEnv() || getCommitFromGit();
   return commit ? commit.slice(0, 7) : null;

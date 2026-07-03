@@ -4,9 +4,10 @@ import { AppShell } from "@/components/layout/AppShell";
 import { getCurrentUser } from "@/lib/auth/server";
 
 export const metadata: Metadata = {
-  title: "Duelo Pe X Ne",
-  description: "Estatísticas do duelo Pedro x Netu",
+  title: "Duel Legacy",
+  description: "Every Rivalry Deserves a Legacy — Duelo Pe × Ne",
 };
+
 
 export default async function RootLayout({
   children,

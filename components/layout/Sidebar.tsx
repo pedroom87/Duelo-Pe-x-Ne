@@ -29,9 +29,14 @@ export function Sidebar({ userEmail, profile, loginHref, onSignOut }: SidebarPro
           <TeamMascot side="NETU" size="md" priority />
         </div>
         <p className="text-xs uppercase tracking-[0.35em] text-zinc-500">
-          Sao Paulo x Palmeiras
+          Every Rivalry Deserves a Legacy
         </p>
-        <h1 className="mt-2 text-2xl font-black">Duelo Pe X Ne</h1>
+        <h1 className="mt-2 text-2xl font-black">Duel Legacy</h1>
+
+        <p className="mt-2 text-xs font-bold uppercase tracking-[0.3em] text-zinc-400">
+          Duelo Pe × Ne
+        </p>
+
         <div className="mt-4 grid grid-cols-2 gap-2">
           <div className="h-1 rounded-full bg-red-600" />
           <div className="h-1 rounded-full bg-green-600" />
