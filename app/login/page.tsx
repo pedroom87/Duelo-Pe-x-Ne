@@ -9,6 +9,7 @@ import {
   getSafeNextPath as getSafeNextPathValue,
   USER_PROFILES,
 } from "@/lib/auth/permissions";
+import { LanguageSelector, useI18n } from "@/lib/i18n/client";
 
 function getCurrentSafeNextPath() {
   if (typeof window === "undefined") return "/";
@@ -24,14 +25,16 @@ function getVisitorNextPath() {
 
 export default function LoginPage() {
   const router = useRouter();
+  const { t } = useI18n();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [hasInvalidCredentialsError, setHasInvalidCredentialsError] =
+    useState(false);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    setError(null);
+    setHasInvalidCredentialsError(false);
     setLoading(true);
 
     const supabase = getSupabaseBrowserClient();
@@ -43,7 +46,7 @@ export default function LoginPage() {
     setLoading(false);
 
     if (signInError) {
-      setError("E-mail ou senha inválidos.");
+      setHasInvalidCredentialsError(true);
       return;
     }
 
@@ -68,8 +71,10 @@ export default function LoginPage() {
         </div>
 
         <div className="rounded-3xl border border-zinc-800 bg-zinc-900 p-6 shadow-2xl shadow-black/30">
+          <LanguageSelector className="mb-6 justify-end" />
+
           <p className="text-xs font-bold uppercase tracking-[0.3em] text-zinc-500">
-            Acesso restrito
+            {t("login.restrictedAccess")}
           </p>
           <h1 className="mt-3 text-3xl font-black">Duel Legacy</h1>
 
@@ -78,13 +83,15 @@ export default function LoginPage() {
           </p>
 
           <p className="mt-3 text-center text-xs font-bold uppercase tracking-[0.3em] text-zinc-500">
-            Campeonato: Duelo Pe × Ne
+            {t("common.currentChampionship")}: Duelo Pe × Ne
           </p>
 
 
           <form onSubmit={handleSubmit} className="mt-8 space-y-4">
             <label className="block">
-              <span className="text-sm font-bold text-zinc-300">E-mail</span>
+              <span className="text-sm font-bold text-zinc-300">
+                {t("login.email")}
+              </span>
               <input
                 type="email"
                 value={email}
@@ -96,7 +103,9 @@ export default function LoginPage() {
             </label>
 
             <label className="block">
-              <span className="text-sm font-bold text-zinc-300">Senha</span>
+              <span className="text-sm font-bold text-zinc-300">
+                {t("login.password")}
+              </span>
               <input
                 type="password"
                 value={password}
@@ -107,9 +116,9 @@ export default function LoginPage() {
               />
             </label>
 
-            {error ? (
+            {hasInvalidCredentialsError ? (
               <p className="rounded-xl border border-red-800 bg-red-950/30 px-4 py-3 text-sm text-red-200">
-                {error}
+                {t("login.invalidCredentials")}
               </p>
             ) : null}
 
@@ -118,7 +127,7 @@ export default function LoginPage() {
               disabled={loading}
               className="w-full rounded-xl bg-red-700 px-6 py-4 text-lg font-black text-white transition hover:bg-red-600 disabled:opacity-50"
             >
-              {loading ? "Entrando..." : "Entrar"}
+              {loading ? t("auth.signInLoading") : t("auth.signIn")}
             </button>
 
             <button
@@ -126,7 +135,7 @@ export default function LoginPage() {
               onClick={handleContinueAsVisitor}
               className="w-full rounded-xl border border-zinc-700 bg-zinc-950 px-6 py-4 text-lg font-black text-zinc-200 transition hover:border-green-700 hover:text-green-200"
             >
-              Continuar como visitante
+              {t("auth.continueAsVisitor")}
             </button>
           </form>
         </div>

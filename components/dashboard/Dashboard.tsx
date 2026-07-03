@@ -11,6 +11,8 @@ import {
   type DashboardStats,
   type VerificationStats,
 } from "@/lib/dashboard";
+import { LanguageSelector, useI18n } from "@/lib/i18n/client";
+import { getNavItemLabel } from "@/lib/i18n/navigation";
 import { getVisibleNavItems } from "@/lib/navigation";
 import type { VersionInfo } from "@/lib/version";
 import { TEAM_ORDER, getTeamTheme, type TeamSide } from "@/utils/constants";
@@ -43,6 +45,7 @@ const CHAMPIONSHIP_MASCOTS_IMAGE = "/mascotes/duelo-mascotes.png";
 
 export default function Dashboard({ versionInfo }: DashboardProps) {
   const { profile } = useAccess();
+  const { t } = useI18n();
   const [stats, setStats] = useState<DashboardStats>(emptyStats);
   const [verificationStats, setVerificationStats] =
     useState<VerificationStats>(emptyVerificationStats);
@@ -96,6 +99,7 @@ export default function Dashboard({ versionInfo }: DashboardProps) {
           <div className="flex flex-wrap gap-2">
             <TeamBadge side="PEDRO" label="Pedro" withMascot />
             <TeamBadge side="NETU" label="Netu" withMascot />
+            <LanguageSelector />
           </div>
         </header>
 
@@ -121,7 +125,7 @@ export default function Dashboard({ versionInfo }: DashboardProps) {
 
             <div className="relative z-10 flex min-h-[26rem] flex-col justify-end p-5 sm:min-h-[23rem] sm:p-8 lg:min-h-[20rem] lg:w-[58%] lg:justify-center">
               <p className="text-xs font-bold uppercase tracking-[0.35em] text-zinc-500">
-                Produto global
+                {t("common.productGlobal")}
               </p>
               <h2 className="mt-3 text-3xl font-black tracking-tight sm:text-4xl">
                 Duel Legacy
@@ -130,14 +134,14 @@ export default function Dashboard({ versionInfo }: DashboardProps) {
               <div className="mt-6 grid gap-3 sm:grid-cols-2">
                 <div className="rounded-2xl border border-zinc-800 bg-zinc-950/85 p-4">
                   <p className="text-xs font-bold uppercase tracking-[0.25em] text-zinc-500">
-                    Campeonato atual
+                    {t("common.currentChampionship")}
                   </p>
                   <p className="mt-2 text-xl font-black">Duelo Pe × Ne</p>
                 </div>
 
                 <div className="rounded-2xl border border-zinc-800 bg-zinc-950/85 p-4">
                   <p className="text-xs font-bold uppercase tracking-[0.25em] text-zinc-500">
-                    Rivalidade
+                    {t("common.rivalry")}
                   </p>
                   <p className="mt-2 text-xl font-black">Pedro × Netu</p>
                 </div>
@@ -199,18 +203,18 @@ export default function Dashboard({ versionInfo }: DashboardProps) {
 
         <section className="mt-8 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
           {([
-            { label: "Jogos", value: loading ? "-" : stats.total },
+            { label: t("dashboard.games"), value: loading ? "-" : stats.total },
             {
-              label: "Vitórias Pedro",
+              label: t("dashboard.pedroWins"),
               value: loading ? "-" : stats.pedroVitorias,
               side: "PEDRO",
             },
             {
-              label: "Vitórias Netu",
+              label: t("dashboard.netuWins"),
               value: loading ? "-" : stats.netuVitorias,
               side: "NETU",
             },
-            { label: "Empates", value: loading ? "-" : stats.empates },
+            { label: t("dashboard.draws"), value: loading ? "-" : stats.empates },
           ] satisfies StatCard[]).map((item) => {
             const team = item.side ? getTeamTheme(item.side) : null;
 
@@ -265,25 +269,25 @@ export default function Dashboard({ versionInfo }: DashboardProps) {
 
         <section className="mt-8 rounded-2xl border border-zinc-800 bg-zinc-900 p-6">
           <p className="text-sm font-bold uppercase tracking-[0.3em] text-zinc-400">
-            Versão
+            {t("common.version")}
           </p>
           <div className="mt-4 space-y-2 text-sm text-zinc-300">
             <p>
-              Versão atual:{" "}
+              {t("common.currentVersion")}:{" "}
               <span className="font-mono font-bold text-white">
                 v{versionInfo.number}
               </span>
             </p>
 
             <p>
-              Codinome:{" "}
+              {t("common.codename")}:{" "}
               <span className="font-mono font-bold text-white">
                 {versionInfo.codename}
               </span>
             </p>
 
             <p>
-              Data:{" "}
+              {t("common.date")}:{" "}
               <span className="font-mono font-bold text-white">
                 {(() => {
                   const [yyyy, mm, dd] = versionInfo.releasedAt.split("-");
@@ -295,7 +299,7 @@ export default function Dashboard({ versionInfo }: DashboardProps) {
 
             <div className="pt-2">
               <p className="text-xs font-bold uppercase tracking-[0.25em] text-zinc-400">
-                Principais novidades
+                {t("common.highlights")}
               </p>
               <ul className="mt-2 space-y-1">
                 {versionInfo.highlights.map((h) => (
@@ -318,7 +322,7 @@ export default function Dashboard({ versionInfo }: DashboardProps) {
               href={item.href}
               className="rounded-2xl border border-zinc-800 bg-zinc-900 px-5 py-4 text-left font-bold transition hover:border-zinc-500 hover:bg-zinc-800"
             >
-              {item.label}
+              {getNavItemLabel(item.href, item.label, t)}
             </Link>
           ))}
 
@@ -326,9 +330,9 @@ export default function Dashboard({ versionInfo }: DashboardProps) {
             href="/projeto"
             className="rounded-2xl border border-zinc-800 bg-zinc-900 px-5 py-4 text-left transition hover:border-zinc-500 hover:bg-zinc-800"
           >
-            <span className="block font-bold">Projeto</span>
+            <span className="block font-bold">{t("nav.project")}</span>
             <span className="mt-1 block text-sm font-semibold text-zinc-400">
-              Roadmap, changelog e visão futura
+              {t("dashboard.projectDescription")}
             </span>
           </Link>
         </section>

@@ -8,15 +8,15 @@ export type VersionInfo = {
   highlights: string[];
 };
 
-// Valores desta Sprint (Duel Legacy / 0.7.2)
-const VERSION_NUMBER = "0.7.2";
-const VERSION_CODENAME = "Identidade do Campeonato";
+// Valores desta Sprint (Duel Legacy / 0.7.3)
+const VERSION_NUMBER = "0.7.3";
+const VERSION_CODENAME = "Internacionalização Base";
 const VERSION_RELEASED_AT = "2026-07-03";
 const VERSION_COMMIT = null;
 const VERSION_HIGHLIGHTS = [
-  "Identidade visual do campeonato Duelo Pe × Ne",
-  "Mascotes aplicados ao Dashboard",
-  "Separação visual entre produto e campeonato",
+  "Estrutura inicial de múltiplos idiomas",
+  "Seletor de idioma em Português, Inglês e Espanhol",
+  "Base preparada para expansão internacional",
 ];
 
 

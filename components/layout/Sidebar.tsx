@@ -1,3 +1,5 @@
+"use client";
+
 import Link from "next/link";
 import { TeamBadge } from "@/components/teams/TeamBadge";
 import { TeamMascot } from "@/components/teams/TeamMascot";
@@ -5,6 +7,8 @@ import {
   USER_PROFILE_LABELS,
   type UserProfile,
 } from "@/lib/auth/permissions";
+import { LanguageSelector, useI18n } from "@/lib/i18n/client";
+import { getNavItemLabel } from "@/lib/i18n/navigation";
 import { getVisibleNavItems } from "@/lib/navigation";
 import { TEAM_ORDER, getTeamTheme } from "@/utils/constants";
 
@@ -16,6 +20,7 @@ type SidebarProps = {
 };
 
 export function Sidebar({ userEmail, profile, loginHref, onSignOut }: SidebarProps) {
+  const { t } = useI18n();
   const items = getVisibleNavItems(profile, "sidebar");
 
   return (
@@ -41,6 +46,8 @@ export function Sidebar({ userEmail, profile, loginHref, onSignOut }: SidebarPro
           <div className="h-1 rounded-full bg-red-600" />
           <div className="h-1 rounded-full bg-green-600" />
         </div>
+
+        <LanguageSelector className="mt-5" />
       </div>
 
       <nav className="space-y-2">
@@ -51,7 +58,7 @@ export function Sidebar({ userEmail, profile, loginHref, onSignOut }: SidebarPro
             className="flex items-center gap-3 rounded-xl px-4 py-3 font-bold text-zinc-300 hover:bg-zinc-900 hover:text-white"
           >
             <span>{icon}</span>
-            <span>{label}</span>
+            <span>{getNavItemLabel(href, label, t)}</span>
           </Link>
         ))}
       </nav>
@@ -79,7 +86,7 @@ export function Sidebar({ userEmail, profile, loginHref, onSignOut }: SidebarPro
 
       <div className="mt-6 rounded-2xl border border-zinc-800 bg-zinc-900 p-4">
         <p className="text-xs uppercase tracking-[0.2em] text-zinc-500">
-          Perfil
+          {t("common.profile")}
         </p>
         <p className="mt-2 truncate text-sm font-bold text-zinc-200">
           {userEmail ?? USER_PROFILE_LABELS[profile]}
@@ -91,7 +98,7 @@ export function Sidebar({ userEmail, profile, loginHref, onSignOut }: SidebarPro
               href="/definir-senha"
               className="mt-4 block w-full rounded-xl border border-zinc-700 bg-zinc-950 px-4 py-3 text-center text-sm font-bold text-zinc-200 transition hover:border-zinc-500 hover:text-white"
             >
-              Definir/alterar senha
+              {t("auth.changePassword")}
             </Link>
 
             <button
@@ -99,7 +106,7 @@ export function Sidebar({ userEmail, profile, loginHref, onSignOut }: SidebarPro
               onClick={onSignOut}
               className="mt-4 w-full rounded-xl border border-red-700 bg-zinc-950 px-4 py-3 text-sm font-bold text-zinc-200 transition hover:border-red-400 hover:text-white"
             >
-              Sair
+              {t("auth.signOut")}
             </button>
           </div>
         ) : (
@@ -107,7 +114,7 @@ export function Sidebar({ userEmail, profile, loginHref, onSignOut }: SidebarPro
             href={loginHref}
             className="mt-4 block w-full rounded-xl border border-zinc-700 bg-zinc-950 px-4 py-3 text-center text-sm font-bold text-zinc-200 transition hover:border-red-700 hover:text-red-200"
           >
-            Entrar
+            {t("auth.signIn")}
           </Link>
         )}
 
