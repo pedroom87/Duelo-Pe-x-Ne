@@ -9,16 +9,16 @@ export type VersionInfo = {
 };
 
 /**
- * Valores desta Sprint (Duel Legacy / 0.8.6)
+ * Valores desta Sprint (Duel Legacy / 0.8.7)
  */
-const VERSION_NUMBER = "0.8.6";
-const VERSION_CODENAME = "Busca Global de Jogadores";
-const VERSION_RELEASED_AT = "2026-07-03";
+const VERSION_NUMBER = "0.8.7";
+const VERSION_CODENAME = "Vínculos Pendentes";
+const VERSION_RELEASED_AT = "2026-07-04";
 const VERSION_COMMIT = null;
 const VERSION_HIGHLIGHTS = [
-  "Busca global em todos os jogadores",
-  "Jogadores consolidados agora podem ser encontrados e editados",
-  "Melhor diagnóstico de aliases inconsistentes",
+  "Jogadores sem eventos renomeados para vínculos pendentes",
+  "Eventos prováveis calculados por nome e alias",
+  "Melhor diagnóstico para rankings confiáveis",
 ];
 
 function getCommitFromEnv() {

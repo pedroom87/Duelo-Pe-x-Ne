@@ -1,5 +1,6 @@
 # Changelog
 
+- v0.8.7 — Vínculos Pendentes
 - v0.8.6 — Busca Global de Jogadores
 - v0.8.5 — Auditoria Acionável
 - v0.8.4 — Auditoria dos Rankings

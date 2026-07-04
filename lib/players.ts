@@ -14,6 +14,23 @@ export type PlayerAlias = {
   normalized_alias: string;
 };
 
+export type PendingVinculoStatus = "VINCULO_PENDENTE" | "SEM_EVENTO_PROVAVEL_ENCONTRADO";
+
+export type PendingVinculoProbableSource = {
+  key: string; // normalizeText result used to match player_name_raw
+  label: string; // e.g. "Nome normalizado" or "Alias normalizado: X"
+  count: number; // probable event count
+  matchesByAlias: boolean;
+};
+
+export type PendingVinculoPlayer = {
+  playerId: string;
+  linkedEventsCount: number; // events with player_id
+  probableEventsCount: number; // events with player_id null + compatible player_name_raw/alias
+  status: PendingVinculoStatus;
+  probableSources: PendingVinculoProbableSource[];
+};
+
 export type PlayerWithAliases = Player & {
   aliases: PlayerAlias[];
 };
@@ -990,6 +1007,153 @@ export async function getPlayerEventUsageIndex(): Promise<{
   });
 
   return { usageByPlayerId, hasAnyEvent };
+}
+
+function getResolvedSideConstraints(eventSide: string | null): {
+  requiresPedroNetu: boolean;
+  allowedSides: Array<string>;
+} {
+  if (eventSide === "PEDRO" || eventSide === "NETU") {
+    return { requiresPedroNetu: true, allowedSides: [eventSide] };
+  }
+
+  return { requiresPedroNetu: false, allowedSides: ["PEDRO", "NETU"] };
+}
+
+export async function getPendingVinculoIndex(
+  players: PlayerWithAliases[]
+): Promise<{ byPlayerId: Record<string, PendingVinculoPlayer> }> {
+  if (players.length === 0) return { byPlayerId: {} };
+
+  const playerIds = players.map((p) => p.id);
+  const playerIdSet = new Set(playerIds);
+
+  // 1) Eventos vinculados (player_id)
+  const { data: linkedRows, error: linkedError } = await supabase
+    .from("events")
+    .select("player_id")
+    .in("player_id", playerIds);
+
+  if (linkedError) throw linkedError;
+
+  const linkedCount = new Map<string, number>();
+  (linkedRows ?? []).forEach((row) => {
+    const playerId = (row as { player_id: string | null }).player_id;
+    if (!playerId || !playerIdSet.has(playerId)) return;
+    linkedCount.set(playerId, (linkedCount.get(playerId) ?? 0) + 1);
+  });
+
+  // 2) Eventos sem vínculo (player_id is null)
+  const { data: unresolvedRows, error: unresolvedError } = await supabase
+    .from("events")
+    .select("player_name_raw, side")
+    .is("player_id", null);
+
+  if (unresolvedError) throw unresolvedError;
+
+  type UnresolvedEventRow = {
+    player_name_raw: string | null;
+    side: string | null;
+  };
+
+  const unresolved = (unresolvedRows ?? []) as UnresolvedEventRow[];
+
+  // 3) Indexar chaves (nome normalizado e aliases normalizados) -> playerIds
+  const officialKeyToPlayerIds = new Map<string, string[]>();
+  const aliasKeyToPlayerIds = new Map<string, string[]>();
+
+  const byPlayerId: Record<string, PendingVinculoPlayer> = {};
+
+  players.forEach((player) => {
+    const officialKey = normalizeText(player.name);
+
+    const probableSources: PendingVinculoProbableSource[] = [];
+
+    if (officialKey) {
+      probableSources.push({
+        key: officialKey,
+        label: `Nome normalizado: ${officialKey}`,
+        count: 0,
+        matchesByAlias: false,
+      });
+
+      const current = officialKeyToPlayerIds.get(officialKey) ?? [];
+      officialKeyToPlayerIds.set(officialKey, Array.from(new Set([...current, player.id])));
+    }
+
+    const distinctAliasKeys = new Map<string, string>(); // key -> normalized label
+    (player.aliases ?? []).forEach((a) => {
+      const key = normalizeText(a.normalized_alias || a.alias);
+      if (!key) return;
+      distinctAliasKeys.set(key, `Alias normalizado: ${key}`);
+    });
+
+    Array.from(distinctAliasKeys.entries()).forEach(([key, label]) => {
+      probableSources.push({
+        key,
+        label,
+        count: 0,
+        matchesByAlias: true,
+      });
+
+      const current = aliasKeyToPlayerIds.get(key) ?? [];
+      aliasKeyToPlayerIds.set(key, Array.from(new Set([...current, player.id])));
+    });
+
+    byPlayerId[player.id] = {
+      playerId: player.id,
+      linkedEventsCount: linkedCount.get(player.id) ?? 0,
+      probableEventsCount: 0,
+      status: "SEM_EVENTO_PROVAVEL_ENCONTRADO",
+      probableSources,
+    };
+  });
+
+  function eventMatchesPlayerSide(params: { eventSide: string | null; playerSide: string }) {
+    const constraints = getResolvedSideConstraints(params.eventSide);
+    if (constraints.requiresPedroNetu) return constraints.allowedSides.includes(params.playerSide);
+    return true;
+  }
+
+  // 4) Computar prováveis
+  unresolved.forEach((event) => {
+    const eventNorm = normalizeText(event.player_name_raw ?? "");
+    if (!eventNorm) return;
+
+    const eventPlayers = new Set<string>();
+
+    const officialMatches = officialKeyToPlayerIds.get(eventNorm) ?? [];
+    const aliasMatches = aliasKeyToPlayerIds.get(eventNorm) ?? [];
+
+    officialMatches.forEach((pid) => eventPlayers.add(pid));
+    aliasMatches.forEach((pid) => eventPlayers.add(pid));
+
+    eventPlayers.forEach((playerId) => {
+      const player = byPlayerId[playerId];
+      if (!player) return;
+
+      const playerIdentity = players.find((p) => p.id === playerId);
+      if (!playerIdentity) return;
+
+      if (!eventMatchesPlayerSide({ eventSide: event.side, playerSide: playerIdentity.side })) return;
+
+      const source = player.probableSources.find((s) => s.key === eventNorm);
+      if (!source) return;
+
+      source.count += 1;
+      player.probableEventsCount += 1;
+    });
+  });
+
+  // 5) Status
+  Object.values(byPlayerId).forEach((p) => {
+    p.status =
+      p.linkedEventsCount === 0 && p.probableEventsCount > 0
+        ? "VINCULO_PENDENTE"
+        : "SEM_EVENTO_PROVAVEL_ENCONTRADO";
+  });
+
+  return { byPlayerId };
 }
 
 export async function getPlayersWithRecentUsage() {

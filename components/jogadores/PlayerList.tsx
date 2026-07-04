@@ -6,7 +6,6 @@ import {
   getPlayerGlobalSearchIndex,
   getPlayersWithAliases,
   getPlayerDeletionPreview,
-  getPlayerEventUsageIndex,
   getRankingsDataHealthAudit,
   updatePlayerBasic,
   type ExistingPlayerDeletionPreview,
@@ -303,9 +302,21 @@ export default function PlayerList({
   const [deletionPreview, setDeletionPreview] =
     useState<ExistingPlayerDeletionPreview | null>(null);
 
-  const [hasAnyEvent, setHasAnyEvent] = useState<Set<string>>(new Set());
-  const [loadingUsage, setLoadingUsage] = useState(false);
-  const [showWithoutEvents, setShowWithoutEvents] = useState(false);
+  const [pendingByPlayerId, setPendingByPlayerId] = useState<
+    Record<string, {
+      linkedEventsCount: number;
+      probableEventsCount: number;
+      status: "VINCULO_PENDENTE" | "SEM_EVENTO_PROVAVEL_ENCONTRADO";
+      probableSources: Array<{
+        label: string;
+        key: string;
+        count: number;
+        matchesByAlias: boolean;
+      }>;
+    }>
+  >({});
+  const [loadingPending, setLoadingPending] = useState(false);
+  const [showPendingOnly, setShowPendingOnly] = useState(true);
 
   const [deleteConfirmation, setDeleteConfirmation] = useState("");
   const [deleteLoadingId, setDeleteLoadingId] = useState<string | null>(null);
@@ -321,25 +332,29 @@ export default function PlayerList({
   useEffect(() => {
     let active = true;
 
-    async function carregarUso() {
+    async function carregarPending() {
       try {
-        setLoadingUsage(true);
-        const { hasAnyEvent } = await getPlayerEventUsageIndex();
+        setLoadingPending(true);
+
+        const { byPlayerId } = await import("@/lib/players").then((m) =>
+          m.getPendingVinculoIndex(playerList)
+        );
+
         if (!active) return;
-        setHasAnyEvent(hasAnyEvent);
+        setPendingByPlayerId(byPlayerId);
       } catch (err) {
-        console.error("Erro ao carregar uso por player:", err);
+        console.error("Erro ao carregar vínculos pendentes:", err);
       } finally {
-        if (active) setLoadingUsage(false);
+        if (active) setLoadingPending(false);
       }
     }
 
-    carregarUso();
+    carregarPending();
 
     return () => {
       active = false;
     };
-  }, []);
+  }, [playerList]);
 
   const filtered = useMemo(() => {
     const term = formatSearchTerm(search);
@@ -386,22 +401,26 @@ export default function PlayerList({
     return filtered.filter((p) => suspectsById[p.id]);
   }, [filtered, suspectsById]);
 
-  const withoutEvents = useMemo(() => {
-    return filtered.filter((p) => !hasAnyEvent.has(p.id));
-  }, [filtered, hasAnyEvent]);
+  const pendingPlayers = useMemo(() => {
+    return filtered.filter((p) => {
+      const pending = pendingByPlayerId[p.id];
+      if (!pending) return false;
+      return pending.linkedEventsCount === 0 && pending.probableEventsCount > 0;
+    });
+  }, [filtered, pendingByPlayerId]);
+
+  const pendingCount = pendingPlayers.length;
 
   const counts = useMemo(() => {
     const possibleDuplicates = suspects.length;
-    const withoutEventsCount = playerList.filter((p) => !hasAnyEvent.has(p.id)).length;
-
     const consolidated = Math.max(0, playerList.length - possibleDuplicates);
 
     return {
       possibleDuplicates,
-      withoutEvents: withoutEventsCount,
+      pending: pendingCount,
       consolidated,
     };
-  }, [hasAnyEvent, playerList, suspects.length]);
+  }, [pendingCount, playerList.length, suspects.length]);
 
   const globalSearchResults = useMemo(() => {
     const term = normalizeText(globalSearch);
@@ -549,11 +568,10 @@ export default function PlayerList({
   }
 
   async function recarregarJogadores() {
-    const [updatedPlayers, updatedAudit, updatedUsage, updatedGlobalIndex] =
+    const [updatedPlayers, updatedAudit, updatedGlobalIndex] =
       await Promise.all([
         getPlayersWithAliases(),
         getRankingsDataHealthAudit(),
-        getPlayerEventUsageIndex(),
         getPlayerGlobalSearchIndex(),
       ]);
     const nextSourceId = updatedPlayers[0]?.id ?? "";
@@ -563,7 +581,6 @@ export default function PlayerList({
     setPlayerList(updatedPlayers);
     setAudit(updatedAudit);
     setGlobalIndex(updatedGlobalIndex);
-    setHasAnyEvent(updatedUsage.hasAnyEvent);
     setAliasesByPlayerId(buildAliasState(updatedPlayers));
     setMergeSourceId(nextSourceId);
     setMergeTargetId(nextTargetId);
@@ -680,6 +697,12 @@ export default function PlayerList({
     const side = getTeamSide(player.side);
     const team = getTeamTheme(side);
 
+    const pending = pendingByPlayerId[player.id];
+    const linkedEventsCount = pending?.linkedEventsCount ?? 0;
+    const probableEventsCount = pending?.probableEventsCount ?? 0;
+    const status =
+      pending?.status ?? "SEM_EVENTO_PROVAVEL_ENCONTRADO";
+
     return (
       <div
         className={`rounded-2xl border p-5 ${team.classes.border} ${team.classes.panel} ${
@@ -713,10 +736,52 @@ export default function PlayerList({
 
         <p className="mt-2 text-sm text-zinc-400">{team.club}</p>
 
-        {dim ? (
-          <p className="mt-4 rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2 text-xs font-bold uppercase tracking-[0.25em] text-zinc-400">
-            Sem eventos vinculados
-          </p>
+        <div className="mt-4 grid grid-cols-2 gap-2">
+          <div className="rounded-lg border border-zinc-800 bg-zinc-950 p-3">
+            <p className="text-xs text-zinc-500">Vinculados</p>
+            <p className="mt-1 font-bold text-zinc-100">
+              {formatNumber(linkedEventsCount)}
+            </p>
+          </div>
+          <div className="rounded-lg border border-zinc-800 bg-zinc-950 p-3">
+            <p className="text-xs text-zinc-500">Prováveis</p>
+            <p className="mt-1 font-bold text-zinc-100">
+              {formatNumber(probableEventsCount)}
+            </p>
+          </div>
+        </div>
+
+        <p className="mt-3 rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2 text-xs font-bold uppercase tracking-[0.25em] text-zinc-400">
+          {status === "VINCULO_PENDENTE"
+            ? "Vínculo pendente"
+            : "Sem evento provável encontrado"}
+        </p>
+
+        {probableEventsCount > 0 ? (
+          <div className="mt-3">
+            <p className="text-xs uppercase tracking-[0.2em] text-zinc-500">
+              Fontes prováveis
+            </p>
+            <div className="mt-2 flex flex-wrap gap-2">
+              {(pending?.probableSources ?? []).map((src) => (
+                <span
+                  key={src.key}
+                  className="rounded-full border border-zinc-700 bg-zinc-900 px-3 py-1 text-xs text-zinc-300"
+                >
+                  {src.label} · {formatNumber(src.count)}
+                </span>
+              ))}
+            </div>
+
+            {!dim ? (
+              <a
+                href="#auditoria-acionavel"
+                className="mt-3 inline-flex text-sm font-bold text-blue-300 hover:text-blue-200"
+              >
+                Ir para auditoria acionável
+              </a>
+            ) : null}
+          </div>
         ) : null}
 
         <div className="mt-5">
@@ -1131,6 +1196,7 @@ export default function PlayerList({
         ) : (
           <div className="mt-5 grid gap-3 xl:grid-cols-3">
             <details
+              id="auditoria-acionavel"
               className="rounded-xl border border-zinc-800 bg-zinc-950 p-3"
               open={audit.eventsWithoutPlayerId > 0}
             >
@@ -1441,10 +1507,10 @@ export default function PlayerList({
 
           <div className="rounded-xl border border-zinc-800 bg-zinc-950 p-3">
             <p className="text-xs font-bold uppercase tracking-[0.3em] text-zinc-500">
-              Jogadores sem eventos
+              Jogadores com vínculo pendente
             </p>
             <p className="mt-1 text-2xl font-black">
-              {loadingUsage ? "-" : counts.withoutEvents}
+              {loadingPending ? "-" : counts.pending}
             </p>
           </div>
 
@@ -1457,22 +1523,22 @@ export default function PlayerList({
         </div>
 
         <div className="mt-5 flex items-center justify-between gap-3">
-          <p className="text-sm font-bold text-zinc-200">Possíveis duplicados</p>
+          <p className="text-sm font-bold text-zinc-200">Vínculos pendentes</p>
 
           <label className="flex cursor-pointer items-center gap-2 text-sm text-zinc-300">
             <input
               type="checkbox"
-              checked={showWithoutEvents}
-              onChange={(e) => setShowWithoutEvents(e.target.checked)}
+              checked={showPendingOnly}
+              onChange={(e) => setShowPendingOnly(e.target.checked)}
               className="h-4 w-4 accent-blue-500"
-              disabled={loadingUsage}
+              disabled={loadingPending}
             />
-            Mostrar jogadores sem eventos
+            Mostrar jogadores com vínculo pendente
           </label>
         </div>
 
         <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-          {suspects.length === 0 ? (
+          {suspects.length === 0 && pendingPlayers.length === 0 ? (
             <div className="col-span-full rounded-2xl border border-zinc-800 bg-zinc-950 p-5 text-sm text-zinc-300">
               Nenhuma pendência de curadoria encontrada.
             </div>
@@ -1482,8 +1548,8 @@ export default function PlayerList({
             <PlayerCard key={player.id} player={player} />
           ))}
 
-          {showWithoutEvents
-            ? withoutEvents.map((player) => (
+          {showPendingOnly
+            ? pendingPlayers.map((player) => (
                 <PlayerCard key={player.id} player={player} dim />
               ))
             : null}
