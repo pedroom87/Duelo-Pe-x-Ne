@@ -18,6 +18,34 @@ export type PlayerWithAliases = Player & {
   aliases: PlayerAlias[];
 };
 
+export type PlayerGlobalSearchAlias = {
+  id: string;
+  alias: string;
+  normalizedAlias: string;
+  playerId: string;
+  player: DataHealthPlayerSummary | null;
+  isOrphan: boolean;
+  isInconsistent: boolean;
+  diagnostic: string | null;
+  relatedPlayers: DataHealthPlayerSummary[];
+};
+
+export type PlayerGlobalSearchPlayer = DataHealthPlayerSummary & {
+  normalizedName: string;
+  aliases: Array<{
+    id: string;
+    alias: string;
+    normalizedAlias: string;
+  }>;
+  eventsCount: number;
+  latestMatchNumber: number;
+};
+
+export type PlayerGlobalSearchIndex = {
+  players: PlayerGlobalSearchPlayer[];
+  aliases: PlayerGlobalSearchAlias[];
+};
+
 export type DataHealthLevel = "Excelente" | "Boa" | "Atenção" | "Crítica";
 
 export type DataHealthStatus = {
@@ -114,6 +142,11 @@ type PlayerUsageEvent = {
   match_number: number | null;
 };
 
+type PlayerGlobalSearchEvent = {
+  player_id: string | null;
+  match_number: number | null;
+};
+
 type RankingAuditEvent = {
   id: string;
   player_id: string | null;
@@ -164,7 +197,7 @@ function playerToSummary(player: Player): DataHealthPlayerSummary {
 function unknownPlayerSummary(playerId: string): DataHealthPlayerSummary {
   return {
     id: playerId,
-    name: "Jogador não encontrado",
+    name: "Alias órfão (jogador não encontrado)",
     side: "-",
   };
 }
@@ -419,6 +452,7 @@ function buildAliasConflicts(players: Player[], aliases: PlayerAlias[]) {
 
   aliasesByNormalized.forEach((items, normalizedAlias) => {
     const ownerIds = Array.from(new Set(items.map((item) => item.player_id)));
+    const orphanOwnerIds = ownerIds.filter((playerId) => !playersById.has(playerId));
     const matchingPlayers = playersByNormalizedName.get(normalizedAlias) ?? [];
     const foreignMatches = matchingPlayers.filter(
       (player) => !ownerIds.includes(player.id)
@@ -431,6 +465,10 @@ function buildAliasConflicts(players: Player[], aliases: PlayerAlias[]) {
 
     if (foreignMatches.length > 0) {
       reasons.push("alias também parece nome oficial de outro jogador");
+    }
+
+    if (orphanOwnerIds.length > 0) {
+      reasons.push("alias órfão: jogador vinculado não encontrado");
     }
 
     if (reasons.length === 0) return;
@@ -614,6 +652,121 @@ export async function getPlayersWithAliases(): Promise<PlayerWithAliases[]> {
     ...player,
     aliases: aliasesByPlayerId.get(player.id) ?? [],
   }));
+}
+
+export async function getPlayerGlobalSearchIndex(): Promise<PlayerGlobalSearchIndex> {
+  const [
+    { data: players, error: playersError },
+    { data: aliases, error: aliasesError },
+    { data: events, error: eventsError },
+  ] = await Promise.all([
+    supabase.from("players").select("id, name, side").order("name"),
+    supabase
+      .from("player_aliases")
+      .select("id, player_id, alias, normalized_alias")
+      .order("alias"),
+    supabase.from("events").select("player_id, match_number").not("player_id", "is", null),
+  ]);
+
+  if (playersError) throw playersError;
+  if (aliasesError) throw aliasesError;
+  if (eventsError) throw eventsError;
+
+  const playerList = (players ?? []) as Player[];
+  const aliasList = (aliases ?? []) as PlayerAlias[];
+  const eventList = (events ?? []) as PlayerGlobalSearchEvent[];
+  const playersById = new Map(playerList.map((player) => [player.id, player]));
+  const playersByNormalizedName = new Map<string, Player[]>();
+  const aliasesByPlayerId = new Map<
+    string,
+    PlayerGlobalSearchPlayer["aliases"]
+  >();
+  const usageByPlayerId = new Map<
+    string,
+    Pick<PlayerGlobalSearchPlayer, "eventsCount" | "latestMatchNumber">
+  >();
+
+  playerList.forEach((player) => {
+    const normalizedName = normalizeText(player.name);
+    if (!normalizedName) return;
+    addToListMap(playersByNormalizedName, normalizedName, player);
+  });
+
+  aliasList.forEach((alias) => {
+    const current = aliasesByPlayerId.get(alias.player_id) ?? [];
+    current.push({
+      id: alias.id,
+      alias: alias.alias,
+      normalizedAlias: getNormalizedAlias(alias),
+    });
+    aliasesByPlayerId.set(alias.player_id, current);
+  });
+
+  eventList.forEach((event) => {
+    if (!event.player_id) return;
+
+    const current = usageByPlayerId.get(event.player_id) ?? {
+      eventsCount: 0,
+      latestMatchNumber: 0,
+    };
+
+    current.eventsCount += 1;
+    current.latestMatchNumber = Math.max(
+      current.latestMatchNumber,
+      Number(event.match_number ?? 0)
+    );
+
+    usageByPlayerId.set(event.player_id, current);
+  });
+
+  const searchPlayers = playerList.map((player) => {
+    const usage = usageByPlayerId.get(player.id) ?? {
+      eventsCount: 0,
+      latestMatchNumber: 0,
+    };
+
+    return {
+      ...playerToSummary(player),
+      normalizedName: normalizeText(player.name),
+      aliases: (aliasesByPlayerId.get(player.id) ?? []).sort((a, b) =>
+        a.alias.localeCompare(b.alias)
+      ),
+      eventsCount: usage.eventsCount,
+      latestMatchNumber: usage.latestMatchNumber,
+    };
+  });
+
+  const searchAliases = aliasList.map((alias) => {
+    const player = playersById.get(alias.player_id) ?? null;
+    const normalizedAlias = getNormalizedAlias(alias);
+    const relatedPlayers = (playersByNormalizedName.get(normalizedAlias) ?? [])
+      .filter((relatedPlayer) => relatedPlayer.id !== alias.player_id)
+      .map(playerToSummary);
+    const isOrphan = !player;
+    const isInconsistent = isOrphan || relatedPlayers.length > 0;
+    const diagnostic = isOrphan
+      ? "Alias órfão: jogador vinculado não encontrado."
+      : relatedPlayers.length > 0
+        ? "Alias também parece nome oficial de outro jogador."
+        : null;
+
+    return {
+      id: alias.id,
+      alias: alias.alias,
+      normalizedAlias,
+      playerId: alias.player_id,
+      player: player ? playerToSummary(player) : null,
+      isOrphan,
+      isInconsistent,
+      diagnostic,
+      relatedPlayers,
+    };
+  });
+
+  return {
+    players: searchPlayers,
+    aliases: searchAliases,
+  };
 }
 
 export async function getRankingsDataHealthAudit(): Promise<RankingsDataHealthAudit> {

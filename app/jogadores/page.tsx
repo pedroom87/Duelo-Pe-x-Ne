@@ -1,11 +1,16 @@
-import { getPlayersWithAliases, getRankingsDataHealthAudit } from "@/lib/players";
+import {
+  getPlayerGlobalSearchIndex,
+  getPlayersWithAliases,
+  getRankingsDataHealthAudit,
+} from "@/lib/players";
 import PlayerList from "@/components/jogadores/PlayerList";
 import { TeamBadge } from "@/components/teams/TeamBadge";
 
 export default async function Jogadores() {
-  const [players, rankingsAudit] = await Promise.all([
+  const [players, rankingsAudit, globalSearchIndex] = await Promise.all([
     getPlayersWithAliases(),
     getRankingsDataHealthAudit(),
+    getPlayerGlobalSearchIndex(),
   ]);
 
   return (
@@ -21,7 +26,11 @@ export default async function Jogadores() {
         <TeamBadge side="NETU" label="Netu / Palmeiras" withMascot />
       </div>
 
-      <PlayerList players={players} rankingsAudit={rankingsAudit} />
+      <PlayerList
+        players={players}
+        rankingsAudit={rankingsAudit}
+        globalSearchIndex={globalSearchIndex}
+      />
     </main>
   );
 }

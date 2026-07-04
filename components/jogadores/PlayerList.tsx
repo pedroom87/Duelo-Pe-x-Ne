@@ -3,12 +3,15 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   deletePlayerSafely,
+  getPlayerGlobalSearchIndex,
   getPlayersWithAliases,
   getPlayerDeletionPreview,
   getPlayerEventUsageIndex,
   getRankingsDataHealthAudit,
   updatePlayerBasic,
   type ExistingPlayerDeletionPreview,
+  type PlayerGlobalSearchIndex,
+  type PlayerGlobalSearchPlayer,
   type PlayerAlias,
   type PlayerWithAliases,
   type RankingsDataHealthAudit,
@@ -28,11 +31,14 @@ import { getTeamSide, getTeamTheme } from "@/utils/constants";
 interface Props {
   players: PlayerWithAliases[];
   rankingsAudit: RankingsDataHealthAudit;
+  globalSearchIndex: PlayerGlobalSearchIndex;
 }
 
 type UnlinkedAuditGroup = RankingsDataHealthAudit["unlinkedEventNames"][number];
 type UnlinkedAuditSideGroup = UnlinkedAuditGroup["sideGroups"][number];
+type GlobalSearchAlias = PlayerGlobalSearchIndex["aliases"][number];
 
+const GLOBAL_SEARCH_SECTION_ID = "busca-global-jogadores";
 const CURATION_SECTION_ID = "curadoria-jogadores";
 
 function buildAliasState(players: PlayerWithAliases[]) {
@@ -206,10 +212,85 @@ function getPlayerOptionLabel(player: PlayerWithAliases) {
   return `${player.name} - ${getTeamTheme(player.side).short}`;
 }
 
-export default function PlayerList({ players, rankingsAudit }: Props) {
+function getSideSearchValues(side: string) {
+  if (side !== "PEDRO" && side !== "NETU") {
+    return [side];
+  }
+
+  const team = getTeamTheme(side);
+
+  return [side, team.owner, team.club, team.short];
+}
+
+function matchesGlobalTerm(term: string, values: Array<string | null | undefined>) {
+  if (!term) return false;
+
+  return values.some((value) => {
+    if (!value) return false;
+    return normalizeText(value).includes(term);
+  });
+}
+
+function playerMatchesGlobalSearch(
+  player: PlayerGlobalSearchPlayer,
+  aliases: Array<{ alias: string; normalizedAlias: string }>,
+  term: string
+) {
+  return matchesGlobalTerm(term, [
+    player.id,
+    player.id.slice(0, 6),
+    player.name,
+    player.normalizedName,
+    ...getSideSearchValues(player.side),
+    ...aliases.flatMap((alias) => [alias.alias, alias.normalizedAlias]),
+  ]);
+}
+
+function aliasMatchesGlobalSearch(alias: GlobalSearchAlias, term: string) {
+  return matchesGlobalTerm(term, [
+    alias.id,
+    alias.id.slice(0, 6),
+    alias.alias,
+    alias.normalizedAlias,
+    alias.playerId,
+    alias.playerId.slice(0, 6),
+    alias.player?.name,
+    alias.player ? normalizeText(alias.player.name) : null,
+    alias.player?.side,
+    ...(alias.player ? getSideSearchValues(alias.player.side) : []),
+    ...alias.relatedPlayers.flatMap((player) => [
+      player.name,
+      player.side,
+      ...getSideSearchValues(player.side),
+    ]),
+  ]);
+}
+
+function toEditablePlayer(player: PlayerGlobalSearchPlayer): PlayerWithAliases {
+  return {
+    id: player.id,
+    name: player.name,
+    side: player.side,
+    aliases: player.aliases.map((alias) => ({
+      id: alias.id,
+      player_id: player.id,
+      alias: alias.alias,
+      normalized_alias: alias.normalizedAlias,
+    })),
+  };
+}
+
+export default function PlayerList({
+  players,
+  rankingsAudit,
+  globalSearchIndex,
+}: Props) {
   const [playerList, setPlayerList] = useState<PlayerWithAliases[]>(players);
   const [audit, setAudit] = useState<RankingsDataHealthAudit>(rankingsAudit);
+  const [globalIndex, setGlobalIndex] =
+    useState<PlayerGlobalSearchIndex>(globalSearchIndex);
   const [aliasesByPlayerId, setAliasesByPlayerId] = useState(buildAliasState(players));
+  const [globalSearch, setGlobalSearch] = useState("");
   const [search, setSearch] = useState("");
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [aliasLoadingId, setAliasLoadingId] = useState<string | null>(null);
@@ -322,6 +403,48 @@ export default function PlayerList({ players, rankingsAudit }: Props) {
     };
   }, [hasAnyEvent, playerList, suspects.length]);
 
+  const globalSearchResults = useMemo(() => {
+    const term = normalizeText(globalSearch);
+
+    if (!term) {
+      return {
+        players: [] as PlayerGlobalSearchPlayer[],
+        aliases: [] as GlobalSearchAlias[],
+      };
+    }
+
+    const matchedAliases = globalIndex.aliases.filter((alias) =>
+      aliasMatchesGlobalSearch(alias, term)
+    );
+    const matchedPlayerIds = new Set(
+      matchedAliases
+        .map((alias) => alias.player?.id)
+        .filter((playerId): playerId is string => Boolean(playerId))
+    );
+
+    const matchedPlayers = globalIndex.players.filter((player) => {
+      if (playerMatchesGlobalSearch(player, player.aliases, term)) {
+        return true;
+      }
+
+      return matchedPlayerIds.has(player.id);
+    });
+
+    return {
+      players: matchedPlayers.sort((a, b) => {
+        if (a.name !== b.name) return a.name.localeCompare(b.name);
+        return a.side.localeCompare(b.side);
+      }),
+      aliases: matchedAliases.sort((a, b) => {
+        if (Number(a.isOrphan) !== Number(b.isOrphan)) {
+          return Number(b.isOrphan) - Number(a.isOrphan);
+        }
+
+        return a.alias.localeCompare(b.alias);
+      }),
+    };
+  }, [globalIndex, globalSearch]);
+
   async function salvarAlias(playerId: string) {
     const alias = (drafts[playerId] || "").trim();
     if (!alias) return;
@@ -343,6 +466,8 @@ export default function PlayerList({ players, rankingsAudit }: Props) {
         };
       });
 
+      const updatedGlobalIndex = await getPlayerGlobalSearchIndex();
+      setGlobalIndex(updatedGlobalIndex);
       setFeedback("Alias salvo.");
     } catch (error: unknown) {
       const message = formatSupabaseError(error, "Erro ao salvar alias.");
@@ -424,17 +549,20 @@ export default function PlayerList({ players, rankingsAudit }: Props) {
   }
 
   async function recarregarJogadores() {
-    const [updatedPlayers, updatedAudit, updatedUsage] = await Promise.all([
-      getPlayersWithAliases(),
-      getRankingsDataHealthAudit(),
-      getPlayerEventUsageIndex(),
-    ]);
+    const [updatedPlayers, updatedAudit, updatedUsage, updatedGlobalIndex] =
+      await Promise.all([
+        getPlayersWithAliases(),
+        getRankingsDataHealthAudit(),
+        getPlayerEventUsageIndex(),
+        getPlayerGlobalSearchIndex(),
+      ]);
     const nextSourceId = updatedPlayers[0]?.id ?? "";
     const nextTargetId =
       updatedPlayers.find((player) => player.id !== nextSourceId)?.id ?? "";
 
     setPlayerList(updatedPlayers);
     setAudit(updatedAudit);
+    setGlobalIndex(updatedGlobalIndex);
     setHasAnyEvent(updatedUsage.hasAnyEvent);
     setAliasesByPlayerId(buildAliasState(updatedPlayers));
     setMergeSourceId(nextSourceId);
@@ -540,6 +668,13 @@ export default function PlayerList({ players, rankingsAudit }: Props) {
     }
   }
 
+  function abrirEdicao(player: Pick<PlayerWithAliases, "id" | "name" | "side">) {
+    setEditPlayerId(player.id);
+    setEditName(player.name);
+    setEditSide(player.side as "PEDRO" | "NETU");
+    setEditError(null);
+  }
+
   function PlayerCard({ player, dim }: { player: PlayerWithAliases; dim?: boolean }) {
     const aliases = aliasesByPlayerId[player.id] ?? [];
     const side = getTeamSide(player.side);
@@ -568,12 +703,7 @@ export default function PlayerList({ players, rankingsAudit }: Props) {
             <TeamBadge side={side} withMascot />
             <button
               type="button"
-              onClick={() => {
-                setEditPlayerId(player.id);
-                setEditName(player.name);
-                setEditSide(player.side as "PEDRO" | "NETU");
-                setEditError(null);
-              }}
+              onClick={() => abrirEdicao(player)}
               className="rounded-lg bg-zinc-800 px-4 py-2 text-xs font-bold text-zinc-100 transition hover:bg-zinc-700 disabled:opacity-50"
             >
               Editar
@@ -734,6 +864,233 @@ export default function PlayerList({ players, rankingsAudit }: Props) {
           {recalculateLoading ? "Recalculando..." : "Recalcular Rankings"}
         </button>
       </div>
+
+      <section
+        id={GLOBAL_SEARCH_SECTION_ID}
+        className="rounded-2xl border border-zinc-800 bg-zinc-900 p-4 sm:p-5"
+      >
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+          <div>
+            <h2 className="text-xl font-black">Busca global de jogadores</h2>
+            <p className="mt-2 text-sm text-zinc-400">
+              Encontre qualquer jogador cadastrado por nome, alias, nome normalizado, lado ou time.
+            </p>
+          </div>
+
+          <div className="rounded-xl border border-zinc-800 bg-zinc-950 px-4 py-3 text-sm text-zinc-300">
+            <span className="font-bold text-zinc-100">
+              {formatNumber(globalIndex.players.length)}
+            </span>{" "}
+            jogadores ·{" "}
+            <span className="font-bold text-zinc-100">
+              {formatNumber(globalIndex.aliases.length)}
+            </span>{" "}
+            aliases
+          </div>
+        </div>
+
+        <input
+          value={globalSearch}
+          onChange={(event) => setGlobalSearch(event.target.value)}
+          placeholder="Buscar por Lucas Moura, Marcos, Palmeiras, SPFC, alias..."
+          className="mt-4 w-full rounded-xl border border-zinc-700 bg-zinc-950 p-4"
+        />
+
+        {!globalSearch.trim() ? (
+          <p className="mt-4 rounded-xl border border-zinc-800 bg-zinc-950 px-4 py-3 text-sm text-zinc-400">
+            Digite um nome, alias, time ou lado para localizar jogadores consolidados e pendências de alias.
+          </p>
+        ) : globalSearchResults.players.length === 0 &&
+          globalSearchResults.aliases.length === 0 ? (
+          <p className="mt-4 rounded-xl border border-zinc-800 bg-zinc-950 px-4 py-3 text-sm text-zinc-400">
+            Nenhum jogador ou alias encontrado para esta busca.
+          </p>
+        ) : (
+          <div className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1.3fr)_minmax(320px,0.7fr)]">
+            <div className="space-y-3">
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-sm font-bold text-zinc-100">
+                  Jogadores encontrados
+                </p>
+                <span className="rounded-full border border-zinc-700 px-2 py-1 text-xs text-zinc-300">
+                  {formatNumber(globalSearchResults.players.length)}
+                </span>
+              </div>
+
+              {globalSearchResults.players.length === 0 ? (
+                <p className="rounded-xl border border-zinc-800 bg-zinc-950 px-4 py-3 text-sm text-zinc-400">
+                  Nenhum jogador cadastrado encontrado. Confira os aliases relacionados ao lado.
+                </p>
+              ) : (
+                <div className="grid gap-3 md:grid-cols-2">
+                  {globalSearchResults.players.map((player) => {
+                    const side = getTeamSide(player.side);
+                    const team = getTeamTheme(side);
+
+                    return (
+                      <div
+                        key={player.id}
+                        className={`rounded-xl border p-4 ${team.classes.border} ${team.classes.panel}`}
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <p className="text-xs uppercase tracking-[0.25em] text-zinc-500">
+                              Jogador
+                            </p>
+                            <h3 className="mt-1 break-words text-lg font-black text-zinc-100">
+                              {player.name}
+                            </h3>
+                            <p className="mt-1 text-xs text-zinc-500">
+                              ID {player.id.slice(0, 6)} · normalizado:{" "}
+                              {player.normalizedName}
+                            </p>
+                          </div>
+
+                          <TeamBadge side={side} withMascot />
+                        </div>
+
+                        <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
+                          <div className="rounded-lg border border-zinc-800 bg-zinc-950 p-3">
+                            <p className="text-xs text-zinc-500">Lado/time</p>
+                            <p className="mt-1 font-bold text-zinc-100">
+                              {getTeamTheme(player.side).owner} ·{" "}
+                              {getTeamTheme(player.side).short}
+                            </p>
+                          </div>
+                          <div className="rounded-lg border border-zinc-800 bg-zinc-950 p-3">
+                            <p className="text-xs text-zinc-500">Eventos</p>
+                            <p className="mt-1 font-bold text-zinc-100">
+                              {formatNumber(player.eventsCount)}
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="mt-3">
+                          <p className="text-xs uppercase tracking-[0.2em] text-zinc-500">
+                            Aliases
+                          </p>
+                          <div className="mt-2 flex flex-wrap gap-2">
+                            {player.aliases.length === 0 ? (
+                              <span className="text-sm text-zinc-500">Nenhum alias</span>
+                            ) : (
+                              player.aliases.map((alias) => (
+                                <span
+                                  key={alias.id}
+                                  className="rounded-full border border-zinc-700 bg-zinc-950 px-3 py-1 text-xs text-zinc-300"
+                                >
+                                  {alias.alias}
+                                </span>
+                              ))
+                            )}
+                          </div>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => abrirEdicao(toEditablePlayer(player))}
+                          className="mt-4 w-full rounded-lg bg-zinc-800 px-4 py-3 text-sm font-bold text-zinc-100 transition hover:bg-zinc-700"
+                        >
+                          Editar
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            <div className="space-y-3">
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-sm font-bold text-zinc-100">
+                  Aliases relacionados
+                </p>
+                <span className="rounded-full border border-zinc-700 px-2 py-1 text-xs text-zinc-300">
+                  {formatNumber(globalSearchResults.aliases.length)}
+                </span>
+              </div>
+
+              {globalSearchResults.aliases.length === 0 ? (
+                <p className="rounded-xl border border-zinc-800 bg-zinc-950 px-4 py-3 text-sm text-zinc-400">
+                  Nenhum alias relacionado encontrado.
+                </p>
+              ) : (
+                <div className="space-y-2">
+                  {globalSearchResults.aliases.map((alias) => (
+                    <div
+                      key={alias.id}
+                      className="rounded-xl border border-zinc-800 bg-zinc-950 p-3 text-sm"
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <p className="font-bold text-zinc-100">{alias.alias}</p>
+                          <p className="mt-1 text-xs text-zinc-500">
+                            normalizado: {alias.normalizedAlias}
+                          </p>
+                        </div>
+                        <span
+                          className={`rounded-full border px-2 py-1 text-xs font-bold ${
+                            alias.isInconsistent
+                              ? "border-yellow-700 bg-yellow-950/30 text-yellow-200"
+                              : "border-zinc-700 text-zinc-300"
+                          }`}
+                        >
+                          {alias.isInconsistent ? "Alias inconsistente" : "Alias ativo"}
+                        </span>
+                      </div>
+
+                      {alias.player ? (
+                        <div className="mt-3">
+                          <p className="text-xs text-zinc-500">Vinculado a</p>
+                          <p className="mt-1 font-semibold text-zinc-200">
+                            {alias.player.name} ({formatAuditSide(alias.player.side)}) · ID{" "}
+                            {alias.player.id.slice(0, 6)}
+                          </p>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              abrirEdicao({
+                                id: alias.player!.id,
+                                name: alias.player!.name,
+                                side: alias.player!.side,
+                              })
+                            }
+                            className="mt-3 rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-xs font-bold text-zinc-100 transition hover:bg-zinc-800"
+                          >
+                            Editar jogador vinculado
+                          </button>
+                        </div>
+                      ) : (
+                        <p className="mt-3 rounded-lg border border-yellow-800 bg-yellow-950/25 px-3 py-2 text-xs text-yellow-200">
+                          {alias.diagnostic} Aponta para um jogador não encontrado (ID{" "}
+                          {alias.playerId.slice(0, 6)}). Use a busca global para confirmar se
+                          existe outro cadastro com esse nome antes de corrigir manualmente.
+                        </p>
+                      )}
+
+                      {alias.player && alias.diagnostic ? (
+                        <div className="mt-3 rounded-lg border border-yellow-800 bg-yellow-950/25 px-3 py-2 text-xs text-yellow-200">
+                          <p>{alias.diagnostic}</p>
+                          {alias.relatedPlayers.length > 0 ? (
+                            <p className="mt-1">
+                              Também relacionado a:{" "}
+                              {alias.relatedPlayers
+                                .map(
+                                  (player) =>
+                                    `${player.name} (${formatAuditSide(player.side)})`
+                                )
+                                .join(", ")}
+                            </p>
+                          ) : null}
+                        </div>
+                      ) : null}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+      </section>
 
       <section className="rounded-2xl border border-zinc-800 bg-zinc-900 p-4 sm:p-5">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -962,12 +1319,12 @@ export default function PlayerList({ players, rankingsAudit }: Props) {
 
               <div className="mt-3 space-y-2">
                 <p className="text-xs text-zinc-500">
-                  Use Editar ou Mesclar jogadores para resolver.{" "}
+                  Use a busca global para localizar ou corrigir o jogador. Depois use Editar ou Mesclar jogadores para resolver.{" "}
                   <a
-                    href={`#${CURATION_SECTION_ID}`}
+                    href={`#${GLOBAL_SEARCH_SECTION_ID}`}
                     className="font-bold text-blue-300 hover:text-blue-200"
                   >
-                    Ir para curadoria
+                    Ir para busca global
                   </a>
                 </p>
 
@@ -989,7 +1346,11 @@ export default function PlayerList({ players, rankingsAudit }: Props) {
                       <p className="mt-2 text-xs text-zinc-400">
                         Vinculado a:{" "}
                         {conflict.owners
-                          .map((player) => `${player.name} (${formatAuditSide(player.side)})`)
+                          .map((player) =>
+                            player.side === "-"
+                              ? `${player.name} · ID ${player.id.slice(0, 6)}`
+                              : `${player.name} (${formatAuditSide(player.side)})`
+                          )
                           .join(", ")}
                       </p>
                       {conflict.matchingPlayers.length > 0 ? (

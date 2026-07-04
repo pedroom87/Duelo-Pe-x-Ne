@@ -9,16 +9,16 @@ export type VersionInfo = {
 };
 
 /**
- * Valores desta Sprint (Duel Legacy / 0.8.5)
+ * Valores desta Sprint (Duel Legacy / 0.8.6)
  */
-const VERSION_NUMBER = "0.8.5";
-const VERSION_CODENAME = "Auditoria Acionável";
+const VERSION_NUMBER = "0.8.6";
+const VERSION_CODENAME = "Busca Global de Jogadores";
 const VERSION_RELEASED_AT = "2026-07-03";
 const VERSION_COMMIT = null;
 const VERSION_HIGHLIGHTS = [
-  "Vinculação manual de eventos sem jogador",
-  "Correção assistida para rankings",
-  "Auditoria dos rankings agora acionável",
+  "Busca global em todos os jogadores",
+  "Jogadores consolidados agora podem ser encontrados e editados",
+  "Melhor diagnóstico de aliases inconsistentes",
 ];
 
 function getCommitFromEnv() {
