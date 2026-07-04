@@ -38,6 +38,13 @@ type GlobalSearchAlias = PlayerGlobalSearchIndex["aliases"][number];
 type ReconciliationSummary = RankingsDataHealthAudit["reconciliationSummary"];
 type ReconciliationSample = ReconciliationSummary["samples"]["safe"][number];
 type ReconciliationCandidate = ReconciliationSample["candidates"][number];
+type ImportCoverageSummary = RankingsDataHealthAudit["importCoverageSummary"];
+type ImportCoverageEventSample =
+  ImportCoverageSummary["samples"]["missingEvents"][number];
+type ImportCoveragePlayerDifference =
+  ImportCoverageSummary["samples"]["playerDifferences"][number];
+type ImportCoverageMatchDifference =
+  ImportCoverageSummary["samples"]["matchDifferences"][number];
 
 const GLOBAL_SEARCH_SECTION_ID = "busca-global-jogadores";
 const CURATION_SECTION_ID = "curadoria-jogadores";
@@ -313,6 +320,333 @@ function ReconciliationSummaryBlock({
           emptyMessage="Nenhum evento sem candidato nesta amostra."
         />
       </div>
+    </div>
+  );
+}
+
+function formatSourceCell(sourceCell: string | null) {
+  return sourceCell || "Sem célula";
+}
+
+function formatCoverageCandidates(sample: ImportCoverageEventSample) {
+  if (!sample.hasRegisteredPlayer) return "Jogador correspondente não cadastrado";
+
+  return sample.candidates
+    .map((candidate) => `${candidate.name} (${formatAuditSide(candidate.side)})`)
+    .join(", ");
+}
+
+function ImportCoverageEventSampleCard({
+  sample,
+}: {
+  sample: ImportCoverageEventSample;
+}) {
+  return (
+    <div className="rounded-lg border border-zinc-800 bg-zinc-900 p-3 text-xs">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="break-words text-sm font-bold text-zinc-100">
+            {sample.playerNameRaw}
+          </p>
+          <p className="mt-1 text-zinc-500">
+            normalizado: {sample.normalizedName}
+          </p>
+        </div>
+
+        <span
+          className={`shrink-0 rounded-full border px-2 py-1 font-bold ${
+            sample.hasRegisteredPlayer
+              ? "border-emerald-700 bg-emerald-950/30 text-emerald-200"
+              : "border-red-700 bg-red-950/30 text-red-200"
+          }`}
+        >
+          {sample.hasRegisteredPlayer ? "Jogador cadastrado" : "Sem cadastro"}
+        </span>
+      </div>
+
+      <div className="mt-3 flex flex-wrap gap-2 text-zinc-300">
+        <span className="rounded-full border border-zinc-700 px-2 py-1">
+          {formatEventType(sample.eventType)}
+        </span>
+        <span className="rounded-full border border-zinc-700 px-2 py-1">
+          {formatAuditSide(sample.side)}
+        </span>
+        <span className="rounded-full border border-zinc-700 px-2 py-1">
+          {formatMatchNumber(sample.matchNumber)}
+        </span>
+        <span className="rounded-full border border-zinc-700 px-2 py-1">
+          {formatSourceCell(sample.sourceCell)}
+        </span>
+      </div>
+
+      <p className="mt-3 text-zinc-400">
+        Cadastro: {formatCoverageCandidates(sample)}
+      </p>
+    </div>
+  );
+}
+
+function ImportCoveragePlayerDifferenceCard({
+  difference,
+}: {
+  difference: ImportCoveragePlayerDifference;
+}) {
+  return (
+    <div className="rounded-lg border border-zinc-800 bg-zinc-900 p-3 text-sm">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <p className="font-bold text-zinc-100">{difference.playerNameRaw}</p>
+          <p className="mt-1 text-xs text-zinc-500">
+            normalizado: {difference.normalizedName} · {formatAuditSide(difference.side)}
+          </p>
+        </div>
+
+        <span className="rounded-full border border-red-700 bg-red-950/30 px-2 py-1 text-xs font-bold text-red-200">
+          {formatNumber(difference.missingEvents)} ausente(s)
+        </span>
+      </div>
+
+      <div className="mt-3 grid gap-2 sm:grid-cols-3">
+        <div className="rounded-lg border border-zinc-800 bg-zinc-950 p-2">
+          <p className="text-xs text-zinc-500">Planilha</p>
+          <p className="mt-1 font-bold text-zinc-100">
+            {formatNumber(difference.expectedEvents)} evento(s)
+          </p>
+          <p className="text-xs text-zinc-500">
+            {formatNumber(difference.expectedGoals)} gol(s)
+          </p>
+        </div>
+        <div className="rounded-lg border border-zinc-800 bg-zinc-950 p-2">
+          <p className="text-xs text-zinc-500">Banco encontrado</p>
+          <p className="mt-1 font-bold text-zinc-100">
+            {formatNumber(difference.matchedEvents)} evento(s)
+          </p>
+          <p className="text-xs text-zinc-500">
+            {formatNumber(difference.matchedGoals)} gol(s)
+          </p>
+        </div>
+        <div className="rounded-lg border border-zinc-800 bg-zinc-950 p-2">
+          <p className="text-xs text-zinc-500">Diferença</p>
+          <p className="mt-1 font-bold text-red-200">
+            {formatNumber(difference.missingEvents)} evento(s)
+          </p>
+          <p className="text-xs text-red-200">
+            {formatNumber(difference.missingGoals)} gol(s)
+          </p>
+        </div>
+      </div>
+
+      <p className="mt-3 text-xs text-zinc-400">
+        Cadastro:{" "}
+        {difference.hasRegisteredPlayer
+          ? difference.candidates
+              .map((candidate) => `${candidate.name} (${formatAuditSide(candidate.side)})`)
+              .join(", ")
+          : "Jogador correspondente não cadastrado"}
+      </p>
+
+      {difference.samples.length > 0 ? (
+        <div className="mt-3 space-y-2">
+          {difference.samples.map((sample) => (
+            <ImportCoverageEventSampleCard
+              key={`${sample.matchNumber}-${sample.sourceCell}-${sample.eventType}`}
+              sample={sample}
+            />
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function ImportCoverageMatchDifferenceCard({
+  difference,
+}: {
+  difference: ImportCoverageMatchDifference;
+}) {
+  return (
+    <div className="rounded-lg border border-zinc-800 bg-zinc-900 p-3 text-sm">
+      <div className="flex items-start justify-between gap-3">
+        <p className="font-bold text-zinc-100">
+          {formatMatchNumber(difference.matchNumber)}
+        </p>
+        <span className="rounded-full border border-yellow-700 bg-yellow-950/30 px-2 py-1 text-xs font-bold text-yellow-200">
+          {formatNumber(difference.missingEvents)} ausente(s)
+        </span>
+      </div>
+
+      <div className="mt-3 grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
+        <div className="rounded-lg border border-zinc-800 bg-zinc-950 p-2">
+          <p className="text-zinc-500">Planilha</p>
+          <p className="mt-1 font-bold text-zinc-100">
+            {formatNumber(difference.expectedEvents)}
+          </p>
+        </div>
+        <div className="rounded-lg border border-zinc-800 bg-zinc-950 p-2">
+          <p className="text-zinc-500">Banco</p>
+          <p className="mt-1 font-bold text-zinc-100">
+            {formatNumber(difference.databaseEvents)}
+          </p>
+        </div>
+        <div className="rounded-lg border border-zinc-800 bg-zinc-950 p-2">
+          <p className="text-zinc-500">Encontrados</p>
+          <p className="mt-1 font-bold text-zinc-100">
+            {formatNumber(difference.matchedEvents)}
+          </p>
+        </div>
+        <div className="rounded-lg border border-zinc-800 bg-zinc-950 p-2">
+          <p className="text-zinc-500">Ausentes</p>
+          <p className="mt-1 font-bold text-red-200">
+            {formatNumber(difference.missingEvents)}
+          </p>
+        </div>
+      </div>
+
+      {difference.samples.length > 0 ? (
+        <div className="mt-3 space-y-2">
+          {difference.samples.map((sample) => (
+            <ImportCoverageEventSampleCard
+              key={`${sample.matchNumber}-${sample.sourceCell}-${sample.eventType}`}
+              sample={sample}
+            />
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function ImportCoverageSummaryBlock({
+  summary,
+}: {
+  summary: ImportCoverageSummary;
+}) {
+  const cards = [
+    {
+      label: "Eventos esperados",
+      value: formatNumber(summary.expectedEvents),
+    },
+    {
+      label: "Eventos no banco",
+      value: formatNumber(summary.databaseEvents),
+    },
+    {
+      label: "Encontrados",
+      value: formatNumber(summary.matchedExpectedEvents),
+    },
+    {
+      label: "Ausentes",
+      value: formatNumber(summary.missingExpectedEvents),
+    },
+    {
+      label: "Jogadores divergentes",
+      value: formatNumber(summary.playersWithDifferenceCount),
+    },
+    {
+      label: "Partidas incompletas",
+      value: formatNumber(summary.matchesWithPossibleIncompleteImportCount),
+    },
+    {
+      label: "Source cells",
+      value: `${formatNumber(summary.sourceCellMatchedEvents)}/${formatNumber(
+        summary.sourceCellExpectedEvents
+      )}`,
+    },
+  ];
+
+  return (
+    <div className="mt-5 rounded-xl border border-yellow-800 bg-yellow-950/20 p-4">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+        <div>
+          <h3 className="text-lg font-black text-zinc-100">
+            Cobertura da importação histórica
+          </h3>
+          <p className="mt-2 text-sm text-yellow-100">
+            Compara os eventos esperados da planilha histórica com os eventos existentes no banco.
+          </p>
+        </div>
+
+        <p className="rounded-lg border border-yellow-700 bg-yellow-950/40 px-3 py-2 text-xs font-bold text-yellow-100">
+          Correção/importação dos eventos ausentes será liberada após validação desta auditoria.
+        </p>
+      </div>
+
+      <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+        {cards.map((card) => (
+          <AuditMetricCard key={card.label} label={card.label} value={card.value} />
+        ))}
+      </div>
+
+      {summary.missingExpectedEvents === 0 ? (
+        <p className="mt-4 rounded-xl border border-emerald-800 bg-emerald-950/25 px-4 py-3 text-sm font-semibold text-emerald-200">
+          A importação histórica cobre todos os eventos esperados da planilha.
+        </p>
+      ) : (
+        <div className="mt-4 grid gap-3 xl:grid-cols-3">
+          <details
+            className="rounded-xl border border-zinc-800 bg-zinc-950 p-3"
+            open
+          >
+            <summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-sm font-bold text-zinc-100">
+              <span>Eventos ausentes</span>
+              <span className="rounded-full border border-zinc-700 px-2 py-1 text-xs text-zinc-300">
+                {formatNumber(summary.missingExpectedEvents)}
+              </span>
+            </summary>
+
+            <div className="mt-3 space-y-2">
+              {summary.samples.missingEvents.map((sample) => (
+                <ImportCoverageEventSampleCard
+                  key={`${sample.matchNumber}-${sample.sourceCell}-${sample.eventType}`}
+                  sample={sample}
+                />
+              ))}
+            </div>
+          </details>
+
+          <details
+            className="rounded-xl border border-zinc-800 bg-zinc-950 p-3"
+            open
+          >
+            <summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-sm font-bold text-zinc-100">
+              <span>Jogadores com diferença</span>
+              <span className="rounded-full border border-zinc-700 px-2 py-1 text-xs text-zinc-300">
+                {formatNumber(summary.playersWithDifferenceCount)}
+              </span>
+            </summary>
+
+            <div className="mt-3 space-y-2">
+              {summary.samples.playerDifferences.map((difference) => (
+                <ImportCoveragePlayerDifferenceCard
+                  key={`${difference.normalizedName}-${difference.side}`}
+                  difference={difference}
+                />
+              ))}
+            </div>
+          </details>
+
+          <details
+            className="rounded-xl border border-zinc-800 bg-zinc-950 p-3"
+            open
+          >
+            <summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-sm font-bold text-zinc-100">
+              <span>Partidas incompletas</span>
+              <span className="rounded-full border border-zinc-700 px-2 py-1 text-xs text-zinc-300">
+                {formatNumber(summary.matchesWithPossibleIncompleteImportCount)}
+              </span>
+            </summary>
+
+            <div className="mt-3 space-y-2">
+              {summary.samples.matchDifferences.map((difference) => (
+                <ImportCoverageMatchDifferenceCard
+                  key={difference.matchNumber}
+                  difference={difference}
+                />
+              ))}
+            </div>
+          </details>
+        </div>
+      )}
     </div>
   );
 }
@@ -1062,6 +1396,7 @@ export default function PlayerList({
   }
 
   const reconciliation = audit.reconciliationSummary;
+  const importCoverage = audit.importCoverageSummary;
   const auditCards = [
     {
       label: "Total de eventos",
@@ -1442,6 +1777,7 @@ export default function PlayerList({
         </div>
 
         <ReconciliationSummaryBlock summary={reconciliation} />
+        <ImportCoverageSummaryBlock summary={importCoverage} />
 
         {!audit.hasRelevantIssues ? (
           <p className="mt-5 rounded-xl border border-emerald-800 bg-emerald-950/25 px-4 py-3 text-sm font-semibold text-emerald-200">

@@ -9,16 +9,16 @@ export type VersionInfo = {
 };
 
 /**
- * Valores desta Sprint (Duel Legacy / 0.9.0)
+ * Valores desta Sprint (Duel Legacy / 0.9.1)
  */
-const VERSION_NUMBER = "0.9.0";
-const VERSION_CODENAME = "Auditoria de Reconciliação";
+const VERSION_NUMBER = "0.9.1";
+const VERSION_CODENAME = "Cobertura da Importação";
 const VERSION_RELEASED_AT = "2026-07-04";
 const VERSION_COMMIT = null;
 const VERSION_HIGHLIGHTS = [
-  "Auditoria de eventos sem jogador vinculado",
-  "Separação de pendências em partidas conferidas",
-  "Diagnóstico de impacto nos rankings históricos",
+  "Auditoria de cobertura entre planilha histórica e banco",
+  "Detecção de eventos da planilha ausentes no site",
+  "Diagnóstico de divergências que afetam rankings",
 ];
 
 function getCommitFromEnv() {

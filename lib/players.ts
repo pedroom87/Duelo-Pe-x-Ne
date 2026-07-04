@@ -1,5 +1,6 @@
 import { normalizeText } from "./playerIdentity";
 import { supabase } from "./supabase";
+import historicalImportData from "../public/data/historico-extraido.json";
 
 export interface Player {
   id: string;
@@ -142,6 +143,57 @@ export type RankingReconciliationSummary = {
   };
 };
 
+export type HistoricalImportCoverageEventSample = {
+  playerNameRaw: string;
+  normalizedName: string;
+  eventType: string;
+  side: string;
+  matchNumber: number;
+  sourceCell: string | null;
+  hasRegisteredPlayer: boolean;
+  candidates: DataHealthPlayerSummary[];
+};
+
+export type HistoricalImportCoveragePlayerDifference = {
+  playerNameRaw: string;
+  normalizedName: string;
+  side: string;
+  expectedEvents: number;
+  matchedEvents: number;
+  missingEvents: number;
+  expectedGoals: number;
+  matchedGoals: number;
+  missingGoals: number;
+  hasRegisteredPlayer: boolean;
+  candidates: DataHealthPlayerSummary[];
+  samples: HistoricalImportCoverageEventSample[];
+};
+
+export type HistoricalImportCoverageMatchDifference = {
+  matchNumber: number;
+  expectedEvents: number;
+  databaseEvents: number;
+  matchedEvents: number;
+  missingEvents: number;
+  samples: HistoricalImportCoverageEventSample[];
+};
+
+export type HistoricalImportCoverageSummary = {
+  expectedEvents: number;
+  databaseEvents: number;
+  matchedExpectedEvents: number;
+  missingExpectedEvents: number;
+  sourceCellExpectedEvents: number;
+  sourceCellMatchedEvents: number;
+  playersWithDifferenceCount: number;
+  matchesWithPossibleIncompleteImportCount: number;
+  samples: {
+    missingEvents: HistoricalImportCoverageEventSample[];
+    playerDifferences: HistoricalImportCoveragePlayerDifference[];
+    matchDifferences: HistoricalImportCoverageMatchDifference[];
+  };
+};
+
 export type RankingsDataHealthAudit = {
   totalEvents: number;
   eventsWithPlayerId: number;
@@ -153,6 +205,7 @@ export type RankingsDataHealthAudit = {
   possibleDuplicateGroupsCount: number;
   health: DataHealthStatus;
   reconciliationSummary: RankingReconciliationSummary;
+  importCoverageSummary: HistoricalImportCoverageSummary;
   unlinkedEventNames: UnlinkedEventNameGroup[];
   aliasConflicts: AliasConflict[];
   possibleDuplicateGroups: PossibleDuplicatePlayerGroup[];
@@ -199,6 +252,7 @@ type RankingAuditEvent = {
   player_name_raw: string | null;
   side: string | null;
   event_type: string | null;
+  source_cell: string | null;
 };
 
 type RankingAuditMatch = {
@@ -213,9 +267,38 @@ type PlayerAliasSearchResult = {
   players: Player | Player[] | null;
 };
 
+type HistoricalImportEvent = {
+  seq: number;
+  side: string;
+  eventType: string;
+  playerNameRaw: string;
+  sourceCell?: string | null;
+};
+
+type HistoricalImportMatch = {
+  matchNumber: number;
+  events: HistoricalImportEvent[];
+};
+
+type HistoricalImportData = {
+  matches: HistoricalImportMatch[];
+};
+
+type ExpectedHistoricalEvent = {
+  playerNameRaw: string;
+  normalizedName: string;
+  eventType: string;
+  side: string;
+  matchNumber: number;
+  sourceCell: string | null;
+};
+
 const AUDIT_EVENT_PAGE_SIZE = 1000;
 const AUDIT_PREVIEW_LIMIT = 8;
 const RECONCILIATION_SAMPLE_LIMIT = 5;
+const IMPORT_COVERAGE_SAMPLE_LIMIT = 8;
+const IMPORT_COVERAGE_PLAYER_SAMPLE_LIMIT = 3;
+const HISTORICAL_IMPORT = historicalImportData as HistoricalImportData;
 
 function getAliasPlayer(alias: PlayerAliasSearchResult) {
   if (Array.isArray(alias.players)) {
@@ -508,6 +591,409 @@ function buildRankingsReconciliationSummary(
   return summary;
 }
 
+function getExpectedHistoricalEvents(): ExpectedHistoricalEvent[] {
+  return HISTORICAL_IMPORT.matches.flatMap((match) =>
+    match.events.map((event) => {
+      const playerNameRaw = event.playerNameRaw.trim() || "Jogador sem nome";
+
+      return {
+        playerNameRaw,
+        normalizedName: normalizeText(playerNameRaw) || "sem-nome",
+        eventType: event.eventType || "SEM_TIPO",
+        side: event.side || "SEM_LADO",
+        matchNumber: match.matchNumber,
+        sourceCell: event.sourceCell?.trim() || null,
+      };
+    })
+  );
+}
+
+function getNormalizedSourceCell(sourceCell: string | null | undefined) {
+  return sourceCell?.trim().toUpperCase() || null;
+}
+
+function getCoverageBaseKey(params: {
+  matchNumber: number | null;
+  eventType: string | null;
+  side: string | null;
+  normalizedName: string;
+}) {
+  return [
+    params.matchNumber ?? "SEM_PARTIDA",
+    params.eventType || "SEM_TIPO",
+    params.side || "SEM_LADO",
+    params.normalizedName,
+  ].join("|");
+}
+
+function getCoverageSourceKey(params: {
+  sourceCell: string | null | undefined;
+  matchNumber: number | null;
+  eventType: string | null;
+  side: string | null;
+  normalizedName: string;
+}) {
+  const sourceCell = getNormalizedSourceCell(params.sourceCell);
+  if (!sourceCell) return null;
+
+  return `${sourceCell}|${getCoverageBaseKey(params)}`;
+}
+
+function getExpectedCoverageBaseKey(event: ExpectedHistoricalEvent) {
+  return getCoverageBaseKey({
+    matchNumber: event.matchNumber,
+    eventType: event.eventType,
+    side: event.side,
+    normalizedName: event.normalizedName,
+  });
+}
+
+function getExpectedCoverageSourceKey(event: ExpectedHistoricalEvent) {
+  return getCoverageSourceKey({
+    sourceCell: event.sourceCell,
+    matchNumber: event.matchNumber,
+    eventType: event.eventType,
+    side: event.side,
+    normalizedName: event.normalizedName,
+  });
+}
+
+function getDatabaseCoverageBaseKey(event: RankingAuditEvent) {
+  return getCoverageBaseKey({
+    matchNumber: event.match_number,
+    eventType: event.event_type,
+    side: event.side,
+    normalizedName: normalizeText(event.player_name_raw ?? "") || "sem-nome",
+  });
+}
+
+function getDatabaseCoverageSourceKey(event: RankingAuditEvent) {
+  return getCoverageSourceKey({
+    sourceCell: event.source_cell,
+    matchNumber: event.match_number,
+    eventType: event.event_type,
+    side: event.side,
+    normalizedName: normalizeText(event.player_name_raw ?? "") || "sem-nome",
+  });
+}
+
+function takeCoverageMatch(
+  map: Map<string, RankingAuditEvent[]>,
+  key: string | null
+) {
+  if (!key) return null;
+
+  const matches = map.get(key);
+  if (!matches || matches.length === 0) return null;
+
+  return matches.shift() ?? null;
+}
+
+function buildCoverageCandidatesIndex(players: Player[], aliases: PlayerAlias[]) {
+  const playersById = new Map(players.map((player) => [player.id, player]));
+  const playersByNormalizedName = new Map<string, Player[]>();
+  const aliasesByNormalized = new Map<string, PlayerAlias[]>();
+
+  players.forEach((player) => {
+    const normalizedName = normalizeText(player.name);
+    if (!normalizedName) return;
+    addToListMap(playersByNormalizedName, normalizedName, player);
+  });
+
+  aliases.forEach((alias) => {
+    const normalizedAlias = getNormalizedAlias(alias);
+    if (!normalizedAlias) return;
+    addToListMap(aliasesByNormalized, normalizedAlias, alias);
+  });
+
+  return {
+    playersById,
+    playersByNormalizedName,
+    aliasesByNormalized,
+  };
+}
+
+function getCoverageCandidates(params: {
+  normalizedName: string;
+  side: string;
+  playersById: Map<string, Player>;
+  playersByNormalizedName: Map<string, Player[]>;
+  aliasesByNormalized: Map<string, PlayerAlias[]>;
+}) {
+  const {
+    normalizedName,
+    side,
+    playersById,
+    playersByNormalizedName,
+    aliasesByNormalized,
+  } = params;
+  const candidates = new Map<string, Player>();
+
+  (playersByNormalizedName.get(normalizedName) ?? []).forEach((player) => {
+    if (player.side === side) candidates.set(player.id, player);
+  });
+
+  (aliasesByNormalized.get(normalizedName) ?? []).forEach((alias) => {
+    const player = playersById.get(alias.player_id);
+    if (player?.side === side) candidates.set(player.id, player);
+  });
+
+  return Array.from(candidates.values()).map(playerToSummary).sort(sortPlayerSummaries);
+}
+
+function buildCoverageSample(
+  event: ExpectedHistoricalEvent,
+  candidateIndex: ReturnType<typeof buildCoverageCandidatesIndex>
+): HistoricalImportCoverageEventSample {
+  const candidates = getCoverageCandidates({
+    normalizedName: event.normalizedName,
+    side: event.side,
+    ...candidateIndex,
+  });
+
+  return {
+    playerNameRaw: event.playerNameRaw,
+    normalizedName: event.normalizedName,
+    eventType: event.eventType,
+    side: event.side,
+    matchNumber: event.matchNumber,
+    sourceCell: event.sourceCell,
+    hasRegisteredPlayer: candidates.length > 0,
+    candidates,
+  };
+}
+
+function isAdemilsonCoverageSample(sample: {
+  normalizedName: string;
+  side: string;
+}) {
+  return sample.normalizedName === "ademilson" && sample.side === "PEDRO";
+}
+
+function limitMissingCoverageSamples(
+  samples: HistoricalImportCoverageEventSample[]
+) {
+  const limited = samples.slice(0, IMPORT_COVERAGE_SAMPLE_LIMIT);
+  const ademilsonSample = samples.find(isAdemilsonCoverageSample);
+
+  if (
+    ademilsonSample &&
+    !limited.some((sample) => sample.sourceCell === ademilsonSample.sourceCell)
+  ) {
+    if (limited.length >= IMPORT_COVERAGE_SAMPLE_LIMIT) {
+      limited[limited.length - 1] = ademilsonSample;
+    } else {
+      limited.push(ademilsonSample);
+    }
+  }
+
+  return limited;
+}
+
+function limitPlayerCoverageDifferences(
+  differences: HistoricalImportCoveragePlayerDifference[]
+) {
+  const limited = differences.slice(0, IMPORT_COVERAGE_SAMPLE_LIMIT);
+  const ademilsonDifference = differences.find(isAdemilsonCoverageSample);
+
+  if (
+    ademilsonDifference &&
+    !limited.some(
+      (difference) =>
+        difference.normalizedName === ademilsonDifference.normalizedName &&
+        difference.side === ademilsonDifference.side
+    )
+  ) {
+    if (limited.length >= IMPORT_COVERAGE_SAMPLE_LIMIT) {
+      limited[limited.length - 1] = ademilsonDifference;
+    } else {
+      limited.push(ademilsonDifference);
+    }
+  }
+
+  return limited;
+}
+
+function buildHistoricalImportCoverageSummary(params: {
+  events: RankingAuditEvent[];
+  players: Player[];
+  aliases: PlayerAlias[];
+}): HistoricalImportCoverageSummary {
+  type PlayerCoverageStats = {
+    playerNameRaw: string;
+    normalizedName: string;
+    side: string;
+    expectedEvents: number;
+    matchedEvents: number;
+    expectedGoals: number;
+    matchedGoals: number;
+    missingEvents: ExpectedHistoricalEvent[];
+  };
+  type MatchCoverageStats = {
+    matchNumber: number;
+    expectedEvents: number;
+    databaseEvents: number;
+    matchedEvents: number;
+    missingEvents: ExpectedHistoricalEvent[];
+  };
+
+  const { events, players, aliases } = params;
+  const expectedEvents = getExpectedHistoricalEvents();
+  const databaseEventsWithSource = new Map<string, RankingAuditEvent[]>();
+  const databaseEventsWithoutSource = new Map<string, RankingAuditEvent[]>();
+  const candidateIndex = buildCoverageCandidatesIndex(players, aliases);
+  const playerStats = new Map<string, PlayerCoverageStats>();
+  const matchStats = new Map<number, MatchCoverageStats>();
+
+  events.forEach((event) => {
+    if (event.match_number !== null) {
+      const current = matchStats.get(event.match_number) ?? {
+        matchNumber: event.match_number,
+        expectedEvents: 0,
+        databaseEvents: 0,
+        matchedEvents: 0,
+        missingEvents: [],
+      };
+      current.databaseEvents += 1;
+      matchStats.set(event.match_number, current);
+    }
+
+    const sourceKey = getDatabaseCoverageSourceKey(event);
+    if (sourceKey) {
+      addToListMap(databaseEventsWithSource, sourceKey, event);
+      return;
+    }
+
+    addToListMap(databaseEventsWithoutSource, getDatabaseCoverageBaseKey(event), event);
+  });
+
+  let matchedExpectedEvents = 0;
+  let sourceCellExpectedEvents = 0;
+  let sourceCellMatchedEvents = 0;
+  const missingSamples: HistoricalImportCoverageEventSample[] = [];
+
+  expectedEvents.forEach((event) => {
+    const playerKey = `${event.normalizedName}:${event.side}`;
+    const currentPlayerStats = playerStats.get(playerKey) ?? {
+      playerNameRaw: event.playerNameRaw,
+      normalizedName: event.normalizedName,
+      side: event.side,
+      expectedEvents: 0,
+      matchedEvents: 0,
+      expectedGoals: 0,
+      matchedGoals: 0,
+      missingEvents: [],
+    };
+    const currentMatchStats = matchStats.get(event.matchNumber) ?? {
+      matchNumber: event.matchNumber,
+      expectedEvents: 0,
+      databaseEvents: 0,
+      matchedEvents: 0,
+      missingEvents: [],
+    };
+
+    currentPlayerStats.expectedEvents += 1;
+    currentMatchStats.expectedEvents += 1;
+    if (event.eventType === "GOL") currentPlayerStats.expectedGoals += 1;
+
+    const sourceKey = getExpectedCoverageSourceKey(event);
+    const sourceMatch = takeCoverageMatch(databaseEventsWithSource, sourceKey);
+    let databaseMatch = sourceMatch;
+
+    if (sourceKey) {
+      sourceCellExpectedEvents += 1;
+      if (sourceMatch) sourceCellMatchedEvents += 1;
+    }
+
+    if (!databaseMatch) {
+      databaseMatch = takeCoverageMatch(
+        databaseEventsWithoutSource,
+        getExpectedCoverageBaseKey(event)
+      );
+    }
+
+    if (databaseMatch) {
+      matchedExpectedEvents += 1;
+      currentPlayerStats.matchedEvents += 1;
+      currentMatchStats.matchedEvents += 1;
+      if (event.eventType === "GOL") currentPlayerStats.matchedGoals += 1;
+    } else {
+      currentPlayerStats.missingEvents.push(event);
+      currentMatchStats.missingEvents.push(event);
+      missingSamples.push(buildCoverageSample(event, candidateIndex));
+    }
+
+    playerStats.set(playerKey, currentPlayerStats);
+    matchStats.set(event.matchNumber, currentMatchStats);
+  });
+
+  const playerDifferences = Array.from(playerStats.values())
+    .filter((stats) => stats.expectedEvents > stats.matchedEvents)
+    .map((stats) => {
+      const samples = stats.missingEvents
+        .slice(0, IMPORT_COVERAGE_PLAYER_SAMPLE_LIMIT)
+        .map((event) => buildCoverageSample(event, candidateIndex));
+      const candidates = getCoverageCandidates({
+        normalizedName: stats.normalizedName,
+        side: stats.side,
+        ...candidateIndex,
+      });
+
+      return {
+        playerNameRaw: stats.playerNameRaw,
+        normalizedName: stats.normalizedName,
+        side: stats.side,
+        expectedEvents: stats.expectedEvents,
+        matchedEvents: stats.matchedEvents,
+        missingEvents: stats.expectedEvents - stats.matchedEvents,
+        expectedGoals: stats.expectedGoals,
+        matchedGoals: stats.matchedGoals,
+        missingGoals: stats.expectedGoals - stats.matchedGoals,
+        hasRegisteredPlayer: candidates.length > 0,
+        candidates,
+        samples,
+      };
+    })
+    .sort((a, b) => {
+      if (b.missingGoals !== a.missingGoals) return b.missingGoals - a.missingGoals;
+      if (b.missingEvents !== a.missingEvents) return b.missingEvents - a.missingEvents;
+      return a.playerNameRaw.localeCompare(b.playerNameRaw);
+    });
+
+  const matchDifferences = Array.from(matchStats.values())
+    .filter((stats) => stats.expectedEvents > stats.matchedEvents)
+    .map((stats) => ({
+      matchNumber: stats.matchNumber,
+      expectedEvents: stats.expectedEvents,
+      databaseEvents: stats.databaseEvents,
+      matchedEvents: stats.matchedEvents,
+      missingEvents: stats.expectedEvents - stats.matchedEvents,
+      samples: stats.missingEvents
+        .slice(0, IMPORT_COVERAGE_PLAYER_SAMPLE_LIMIT)
+        .map((event) => buildCoverageSample(event, candidateIndex)),
+    }))
+    .sort((a, b) => {
+      if (b.missingEvents !== a.missingEvents) return b.missingEvents - a.missingEvents;
+      return a.matchNumber - b.matchNumber;
+    });
+
+  return {
+    expectedEvents: expectedEvents.length,
+    databaseEvents: events.length,
+    matchedExpectedEvents,
+    missingExpectedEvents: expectedEvents.length - matchedExpectedEvents,
+    sourceCellExpectedEvents,
+    sourceCellMatchedEvents,
+    playersWithDifferenceCount: playerDifferences.length,
+    matchesWithPossibleIncompleteImportCount: matchDifferences.length,
+    samples: {
+      missingEvents: limitMissingCoverageSamples(missingSamples),
+      playerDifferences: limitPlayerCoverageDifferences(playerDifferences),
+      matchDifferences: matchDifferences.slice(0, IMPORT_COVERAGE_SAMPLE_LIMIT),
+    },
+  };
+}
+
 function getHealthStatus(linkedEventsPercent: number): DataHealthStatus {
   if (linkedEventsPercent >= 95) {
     return {
@@ -543,7 +1029,7 @@ async function getAllRankingAuditEvents(): Promise<RankingAuditEvent[]> {
   while (true) {
     const { data, error } = await supabase
       .from("events")
-      .select("id, match_id, match_number, player_id, player_name_raw, side, event_type")
+      .select("id, match_id, match_number, player_id, player_name_raw, side, event_type, source_cell")
       .order("match_number", { ascending: true })
       .order("seq", { ascending: true })
       .range(from, from + AUDIT_EVENT_PAGE_SIZE - 1);
@@ -1068,6 +1554,11 @@ export async function getRankingsDataHealthAudit(): Promise<RankingsDataHealthAu
     playerList,
     aliasList
   );
+  const importCoverageSummary = buildHistoricalImportCoverageSummary({
+    events,
+    players: playerList,
+    aliases: aliasList,
+  });
   const aliasConflicts = buildAliasConflicts(playerList, aliasList);
   const possibleDuplicateGroups = buildPossibleDuplicateGroups(playerList, aliasList);
 
@@ -1082,10 +1573,12 @@ export async function getRankingsDataHealthAudit(): Promise<RankingsDataHealthAu
     possibleDuplicateGroupsCount: possibleDuplicateGroups.length,
     health: getHealthStatus(linkedEventsPercent),
     reconciliationSummary,
+    importCoverageSummary,
     unlinkedEventNames: unlinkedEventNames.slice(0, AUDIT_PREVIEW_LIMIT),
     aliasConflicts: aliasConflicts.slice(0, AUDIT_PREVIEW_LIMIT),
     possibleDuplicateGroups: possibleDuplicateGroups.slice(0, AUDIT_PREVIEW_LIMIT),
     hasRelevantIssues:
+      importCoverageSummary.missingExpectedEvents > 0 ||
       eventsWithoutPlayerId > 0 ||
       aliasConflicts.length > 0 ||
       possibleDuplicateGroups.length > 0,
