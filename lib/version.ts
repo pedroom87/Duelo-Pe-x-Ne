@@ -11,14 +11,14 @@ export type VersionInfo = {
 /**
  * Valores desta Sprint (Duel Legacy / 0.8.7)
  */
-const VERSION_NUMBER = "0.8.7";
-const VERSION_CODENAME = "Vínculos Pendentes";
+const VERSION_NUMBER = "0.8.8";
+const VERSION_CODENAME = "Gestão de Aliases";
 const VERSION_RELEASED_AT = "2026-07-04";
 const VERSION_COMMIT = null;
 const VERSION_HIGHLIGHTS = [
-  "Jogadores sem eventos renomeados para vínculos pendentes",
-  "Eventos prováveis calculados por nome e alias",
-  "Melhor diagnóstico para rankings confiáveis",
+  "Adicionar aliases pela busca global",
+  "Tratamento seguro de aliases duplicados",
+  "Melhoria na curadoria de identidade dos jogadores",
 ];
 
 function getCommitFromEnv() {

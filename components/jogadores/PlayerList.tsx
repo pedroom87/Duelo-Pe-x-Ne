@@ -17,6 +17,7 @@ import {
 } from "@/lib/players";
 import {
   addAlias,
+  getAliasOwnerByNormalized,
   getAliases,
   mergePlayers,
   recalculateEventPlayerIds,
@@ -293,6 +294,14 @@ export default function PlayerList({
   const [search, setSearch] = useState("");
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [aliasLoadingId, setAliasLoadingId] = useState<string | null>(null);
+
+  // Busca global (adicionar alias)
+  const [globalAliasDrafts, setGlobalAliasDrafts] = useState<
+    Record<string, string>
+  >({});
+  const [globalAliasLoadingId, setGlobalAliasLoadingId] = useState<
+    string | null
+  >(null);
   const [mergeSourceId, setMergeSourceId] = useState(players[0]?.id ?? "");
   const [mergeTargetId, setMergeTargetId] = useState(players[1]?.id ?? "");
   const [mergeLoading, setMergeLoading] = useState(false);
@@ -493,6 +502,54 @@ export default function PlayerList({
       setFeedback(message);
     } finally {
       setAliasLoadingId(null);
+    }
+  }
+
+  async function salvarAliasBuscaGlobal(playerId: string) {
+    const alias = (globalAliasDrafts[playerId] || "").trim();
+    if (!alias) return;
+
+    const normalizedAlias = normalizeText(alias);
+    if (!normalizedAlias) {
+      setFeedback("Alias inválido.");
+      return;
+    }
+
+    try {
+      setGlobalAliasLoadingId(playerId);
+
+      const owner = await getAliasOwnerByNormalized(normalizedAlias);
+
+      if (owner?.player_id === playerId) {
+        setGlobalAliasDrafts((current) => ({ ...current, [playerId]: "" }));
+        setFeedback("Esse alias já está cadastrado para este jogador.");
+        return;
+      }
+
+      if (owner?.player_id && owner.player_id !== playerId) {
+        setFeedback("Conflito: este alias já pertence a outro jogador. Ajuste na curadoria antes.");
+        return;
+      }
+
+      await addAlias(playerId, alias);
+
+      // Atualiza aliases e busca global para refletir a mudança
+      const updatedAliases = (await getAliases(playerId)) as PlayerAlias[];
+      setAliasesByPlayerId((current) => ({
+        ...current,
+        [playerId]: sortAliases(updatedAliases),
+      }));
+
+      const updatedGlobalIndex = await getPlayerGlobalSearchIndex();
+      setGlobalIndex(updatedGlobalIndex);
+
+      setGlobalAliasDrafts((current) => ({ ...current, [playerId]: "" }));
+      setFeedback("Alias salvo na busca global.");
+    } catch (error: unknown) {
+      const message = formatSupabaseError(error, "Erro ao adicionar alias na busca global.");
+      setFeedback(message);
+    } finally {
+      setGlobalAliasLoadingId(null);
     }
   }
 
@@ -1047,6 +1104,30 @@ export default function PlayerList({
                                 </span>
                               ))
                             )}
+                          </div>
+
+                          <div className="mt-3 flex gap-2">
+                            <input
+                              value={globalAliasDrafts[player.id] || ""}
+                              onChange={(e) =>
+                                setGlobalAliasDrafts((current) => ({
+                                  ...current,
+                                  [player.id]: e.target.value,
+                                }))
+                              }
+                              placeholder="Adicionar alias"
+                              className="min-w-0 flex-1 rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-3 text-sm text-white"
+                              disabled={globalAliasLoadingId === player.id}
+                            />
+
+                            <button
+                              type="button"
+                              onClick={() => salvarAliasBuscaGlobal(player.id)}
+                              disabled={globalAliasLoadingId === player.id}
+                              className="rounded-lg bg-zinc-800 px-4 py-3 text-sm font-bold text-zinc-100 transition hover:bg-zinc-700 disabled:opacity-50"
+                            >
+                              {globalAliasLoadingId === player.id ? "..." : "Adicionar alias"}
+                            </button>
                           </div>
                         </div>
 

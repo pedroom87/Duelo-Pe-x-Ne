@@ -53,6 +53,25 @@ export async function getAliases(playerId: string): Promise<PlayerAlias[]> {
   return (data ?? []) as PlayerAlias[];
 }
 
+export async function getAliasOwnerByNormalized(
+  normalizedAlias: string
+): Promise<{ player_id: string } | null> {
+  const normalized = normalizeText(normalizedAlias);
+
+  if (!normalized) return null;
+
+  const { data, error } = await supabase
+    .from("player_aliases")
+    .select("player_id")
+    .eq("normalized_alias", normalized)
+    .maybeSingle();
+
+  if (error) throw error;
+  if (!data) return null;
+
+  return { player_id: data.player_id as string };
+}
+
 export async function addAlias(
   playerId: string,
   alias: string
