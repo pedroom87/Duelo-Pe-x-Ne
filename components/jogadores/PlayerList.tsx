@@ -21,6 +21,7 @@ import {
   getAliases,
   mergePlayers,
   recalculateEventPlayerIds,
+  reassignAliasOwner,
 } from "@/lib/playerAliases";
 import { linkUnresolvedEventsToPlayer } from "@/lib/events";
 import { normalizeText } from "@/lib/playerIdentity";
@@ -279,6 +280,93 @@ function toEditablePlayer(player: PlayerGlobalSearchPlayer): PlayerWithAliases {
     })),
   };
 }
+
+function normalizeSortableName(value: string) {
+  return normalizeText(value) ?? "";
+}
+
+type AliasReassignmentBlockProps = {
+  alias: GlobalSearchAlias;
+  playerList: PlayerWithAliases[];
+  onReassign: (targetPlayerId: string) => Promise<void>;
+};
+
+function AliasReassignmentBlock({
+  alias,
+  playerList,
+  onReassign,
+}: AliasReassignmentBlockProps) {
+  const normalizedAlias = normalizeSortableName(alias.normalizedAlias);
+
+  const suggestedPlayers = useMemo(() => {
+    const direct = playerList.filter(
+      (p) => normalizeSortableName(p.name) === normalizedAlias
+    );
+
+    const rest = playerList.filter(
+      (p) => normalizeSortableName(p.name) !== normalizedAlias
+    );
+
+    const sortByName = (a: PlayerWithAliases, b: PlayerWithAliases) =>
+      a.name.localeCompare(b.name);
+
+    direct.sort(sortByName);
+    rest.sort(sortByName);
+
+    return [...direct, ...rest];
+  }, [normalizedAlias, playerList]);
+
+  const initialSelectedId = suggestedPlayers[0]?.id ?? "";
+  const [selectedPlayerId, setSelectedPlayerId] = useState<string>(initialSelectedId);
+
+  useEffect(() => {
+    setSelectedPlayerId(initialSelectedId);
+  }, [initialSelectedId]);
+
+  const selected = playerList.find((p) => p.id === selectedPlayerId);
+
+  const handleReassign = () => {
+    if (!selectedPlayerId) return;
+    void onReassign(selectedPlayerId);
+  };
+
+  return (
+    <div className="mt-3 rounded-lg border border-yellow-800 bg-yellow-950/25 p-3">
+      <p className="text-xs font-bold text-yellow-200">
+        {alias.isOrphan ? "Corrigir alias" : "Reatribuir alias"}
+      </p>
+      <p className="mt-1 text-xs text-yellow-100">
+        Reatribuição segura do alias. Você confirma manualmente antes de salvar.
+      </p>
+
+
+      <div className="mt-3 flex flex-col gap-2">
+        <select
+          value={selectedPlayerId}
+          onChange={(e) => setSelectedPlayerId(e.target.value)}
+          className="min-w-0 rounded-lg border border-yellow-700 bg-zinc-900 px-3 py-3 text-sm text-white"
+        >
+          {suggestedPlayers.map((p) => (
+            <option key={p.id} value={p.id}>
+              {p.name} ({formatAuditSide(p.side)})
+            </option>
+          ))}
+        </select>
+
+        <button
+          type="button"
+          onClick={handleReassign}
+          disabled={!selected}
+          className="rounded-lg bg-yellow-700 px-4 py-3 text-sm font-bold text-black transition hover:bg-yellow-600 disabled:opacity-50"
+        >
+          Confirmar reatribuição
+        </button>
+      </div>
+    </div>
+  );
+}
+
+
 
 export default function PlayerList({
   players,
@@ -1184,7 +1272,49 @@ export default function PlayerList({
                         </span>
                       </div>
 
-                      {alias.player ? (
+                      {alias.isOrphan || alias.isInconsistent ? (
+                        <AliasReassignmentBlock
+                          alias={alias}
+                          playerList={playerList}
+                          onReassign={async (targetPlayerId) => {
+                            const target = playerList.find((p) => p.id === targetPlayerId);
+                            if (!target) {
+                              setFeedback("Selecione um jogador válido para reatribuir.");
+                              return;
+                            }
+
+                            const confirmed = window.confirm(
+                              `Reatribuir o alias ${alias.alias} para ${target.name} (${formatAuditSide(target.side)})?`
+                            );
+                            if (!confirmed) return;
+
+                            try {
+                              const result = await reassignAliasOwner({
+                                aliasId: alias.id,
+                                targetPlayerId,
+                              });
+
+                              if (result.status === "no-op") {
+                                setFeedback(
+                                  `Alias ${alias.alias} já está reatribuído para ${target.name}.`
+                                );
+                              } else {
+                                setFeedback(
+                                  `Alias ${alias.alias} reatribuído para ${target.name} com sucesso.`
+                                );
+                              }
+
+                              await recarregarJogadores();
+                            } catch (error: unknown) {
+                              const message = formatSupabaseError(
+                                error,
+                                "Erro ao reatribuir alias."
+                              );
+                              setFeedback(message);
+                            }
+                          }}
+                        />
+                      ) : alias.player ? (
                         <div className="mt-3">
                           <p className="text-xs text-zinc-500">Vinculado a</p>
                           <p className="mt-1 font-semibold text-zinc-200">
@@ -1212,6 +1342,7 @@ export default function PlayerList({
                           existe outro cadastro com esse nome antes de corrigir manualmente.
                         </p>
                       )}
+
 
                       {alias.player && alias.diagnostic ? (
                         <div className="mt-3 rounded-lg border border-yellow-800 bg-yellow-950/25 px-3 py-2 text-xs text-yellow-200">

@@ -265,6 +265,46 @@ export async function mergePlayers({
   };
 }
 
+export async function reassignAliasOwner(params: {
+  aliasId: string;
+  targetPlayerId: string;
+}): Promise<{ status: "no-op" | "reassigned"; previousPlayerId: string }> {
+  const { aliasId, targetPlayerId } = params;
+
+  if (!aliasId || !targetPlayerId) {
+    throw new Error("Parâmetros inválidos para reatribuição de alias.");
+  }
+  if (aliasId === targetPlayerId) {
+    // aliasId != playerId, mas evita erros óbvios.
+    // Mantemos a validação simples sem assumir schema.
+  }
+
+  const { data: alias, error: aliasError } = await supabase
+    .from("player_aliases")
+    .select("id, player_id")
+    .eq("id", aliasId)
+    .maybeSingle();
+
+  if (aliasError) throw aliasError;
+  if (!alias) {
+    throw new Error("Alias não encontrado.");
+  }
+
+  const previousPlayerId = alias.player_id as string;
+  if (previousPlayerId === targetPlayerId) {
+    return { status: "no-op", previousPlayerId };
+  }
+
+  const { error: updateError } = await supabase
+    .from("player_aliases")
+    .update({ player_id: targetPlayerId })
+    .eq("id", aliasId);
+
+  if (updateError) throw updateError;
+
+  return { status: "reassigned", previousPlayerId };
+}
+
 export async function recalculateEventPlayerIds(): Promise<RecalculateRankingsResult> {
   const [
     { data: events, error: eventsError },

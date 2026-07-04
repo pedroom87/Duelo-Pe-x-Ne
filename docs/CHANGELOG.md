@@ -1,6 +1,8 @@
 # Changelog
 
+- v0.8.9 — Alias Órfão
 - v0.8.8 — Gestão de Aliases
+
 - v0.8.7 — Vínculos Pendentes
 - v0.8.6 — Busca Global de Jogadores
 - v0.8.5 — Auditoria Acionável

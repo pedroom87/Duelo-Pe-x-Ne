@@ -11,14 +11,14 @@ export type VersionInfo = {
 /**
  * Valores desta Sprint (Duel Legacy / 0.8.7)
  */
-const VERSION_NUMBER = "0.8.8";
-const VERSION_CODENAME = "Gestão de Aliases";
+const VERSION_NUMBER = "0.8.9";
+const VERSION_CODENAME = "Alias Órfão";
 const VERSION_RELEASED_AT = "2026-07-04";
 const VERSION_COMMIT = null;
 const VERSION_HIGHLIGHTS = [
-  "Adicionar aliases pela busca global",
-  "Tratamento seguro de aliases duplicados",
-  "Melhoria na curadoria de identidade dos jogadores",
+  "Correção manual de aliases órfãos",
+  "Reatribuição segura de aliases existentes",
+  "Melhoria na curadoria de jogadores",
 ];
 
 function getCommitFromEnv() {
