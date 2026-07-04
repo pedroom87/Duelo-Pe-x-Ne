@@ -9,16 +9,16 @@ export type VersionInfo = {
 };
 
 /**
- * Valores desta Sprint (Duel Legacy / 0.8.4)
+ * Valores desta Sprint (Duel Legacy / 0.8.5)
  */
-const VERSION_NUMBER = "0.8.4";
-const VERSION_CODENAME = "Auditoria dos Rankings";
+const VERSION_NUMBER = "0.8.5";
+const VERSION_CODENAME = "Auditoria Acionável";
 const VERSION_RELEASED_AT = "2026-07-03";
 const VERSION_COMMIT = null;
 const VERSION_HIGHLIGHTS = [
-  "Auditoria de saúde dos dados",
-  "Eventos sem jogador vinculados destacados",
-  "Indicadores de confiabilidade dos rankings",
+  "Vinculação manual de eventos sem jogador",
+  "Correção assistida para rankings",
+  "Auditoria dos rankings agora acionável",
 ];
 
 function getCommitFromEnv() {

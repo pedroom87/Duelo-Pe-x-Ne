@@ -1,3 +1,4 @@
+import { normalizeText } from "./playerIdentity";
 import { supabase } from "./supabase";
 
 type EventType =
@@ -9,6 +10,123 @@ type EventType =
   | "GOL_CONTRA";
 
 type Side = "PEDRO" | "NETU";
+
+type LinkUnresolvedEventsParams = {
+  normalizedPlayerName: string;
+  side: string;
+  playerId: string;
+};
+
+export type LinkUnresolvedEventsResult = {
+  updatedEvents: number;
+  playerId: string;
+  normalizedPlayerName: string;
+  side: string;
+};
+
+type LinkableEventRecord = {
+  id: string;
+  player_id: string | null;
+  player_name_raw: string | null;
+  side: string | null;
+};
+
+const LINK_EVENTS_BATCH_SIZE = 200;
+
+function getEventIdBatches(ids: string[]) {
+  const batches: string[][] = [];
+
+  for (let index = 0; index < ids.length; index += LINK_EVENTS_BATCH_SIZE) {
+    batches.push(ids.slice(index, index + LINK_EVENTS_BATCH_SIZE));
+  }
+
+  return batches;
+}
+
+export async function linkUnresolvedEventsToPlayer({
+  normalizedPlayerName,
+  side,
+  playerId,
+}: LinkUnresolvedEventsParams): Promise<LinkUnresolvedEventsResult> {
+  const normalizedName = normalizeText(normalizedPlayerName);
+
+  if (!normalizedName) {
+    throw new Error("Nome normalizado inválido para vinculação.");
+  }
+
+  if (!playerId) {
+    throw new Error("Selecione um jogador para vincular os eventos.");
+  }
+
+  const { data: player, error: playerError } = await supabase
+    .from("players")
+    .select("id")
+    .eq("id", playerId)
+    .maybeSingle();
+
+  if (playerError) throw playerError;
+  if (!player) {
+    throw new Error("Jogador selecionado não foi encontrado.");
+  }
+
+  let query = supabase
+    .from("events")
+    .select("id, player_id, player_name_raw, side")
+    .is("player_id", null);
+
+  if (side === "PEDRO" || side === "NETU") {
+    query = query.eq("side", side);
+  } else {
+    query = query.is("side", null);
+  }
+
+  const { data: events, error: eventsError } = await query;
+
+  if (eventsError) throw eventsError;
+
+  const idsToUpdate = ((events ?? []) as LinkableEventRecord[])
+    .filter((event) => normalizeText(event.player_name_raw ?? "") === normalizedName)
+    .map((event) => event.id);
+
+  if (idsToUpdate.length === 0) {
+    return {
+      updatedEvents: 0,
+      playerId,
+      normalizedPlayerName: normalizedName,
+      side,
+    };
+  }
+
+  let updatedEvents = 0;
+
+  for (const batch of getEventIdBatches(idsToUpdate)) {
+    let updateQuery = supabase
+      .from("events")
+      .update({ player_id: playerId })
+      .in("id", batch)
+      .is("player_id", null)
+      .select("id");
+
+    if (side === "PEDRO" || side === "NETU") {
+      updateQuery = updateQuery.eq("side", side);
+    } else {
+      updateQuery = updateQuery.is("side", null);
+    }
+
+    const { data: updated, error: updateError } = await updateQuery;
+
+    if (updateError) throw updateError;
+
+    updatedEvents += updated?.length ?? 0;
+  }
+
+  return {
+    updatedEvents,
+    playerId,
+    normalizedPlayerName: normalizedName,
+    side,
+  };
+}
 
 /**
  * Registra um evento genérico na partida

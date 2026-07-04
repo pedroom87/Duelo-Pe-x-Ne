@@ -1,5 +1,6 @@
 # Changelog
 
+- v0.8.5 — Auditoria Acionável
 - v0.8.4 — Auditoria dos Rankings
 - v0.8.3 — Correção do Botão Editar
 - v0.8.2 — Edição de Jogadores

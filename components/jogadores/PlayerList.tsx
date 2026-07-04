@@ -19,6 +19,7 @@ import {
   mergePlayers,
   recalculateEventPlayerIds,
 } from "@/lib/playerAliases";
+import { linkUnresolvedEventsToPlayer } from "@/lib/events";
 import { normalizeText } from "@/lib/playerIdentity";
 import { formatSupabaseError } from "@/lib/supabaseErrors";
 import { TeamBadge } from "@/components/teams/TeamBadge";
@@ -28,6 +29,11 @@ interface Props {
   players: PlayerWithAliases[];
   rankingsAudit: RankingsDataHealthAudit;
 }
+
+type UnlinkedAuditGroup = RankingsDataHealthAudit["unlinkedEventNames"][number];
+type UnlinkedAuditSideGroup = UnlinkedAuditGroup["sideGroups"][number];
+
+const CURATION_SECTION_ID = "curadoria-jogadores";
 
 function buildAliasState(players: PlayerWithAliases[]) {
   return Object.fromEntries(
@@ -143,6 +149,63 @@ function AuditMetricCard({
   );
 }
 
+function getLinkGroupKey(group: UnlinkedAuditGroup, sideGroup: UnlinkedAuditSideGroup) {
+  return `${group.normalizedName}:${sideGroup.side}`;
+}
+
+function getDefaultLinkPlayerId(
+  players: PlayerWithAliases[],
+  sideGroup: UnlinkedAuditSideGroup
+) {
+  const playerIds = new Set(players.map((player) => player.id));
+  const firstSameSideCandidate = sideGroup.candidates.find(
+    (candidate) => candidate.side === sideGroup.side && playerIds.has(candidate.id)
+  );
+  const firstCandidate = sideGroup.candidates.find((candidate) =>
+    playerIds.has(candidate.id)
+  );
+
+  return (
+    firstSameSideCandidate?.id ??
+    players.find((player) => player.side === sideGroup.side)?.id ??
+    firstCandidate?.id ??
+    players[0]?.id ??
+    ""
+  );
+}
+
+function getLinkOptionGroups(
+  players: PlayerWithAliases[],
+  sideGroup: UnlinkedAuditSideGroup
+) {
+  const playersById = new Map(players.map((player) => [player.id, player]));
+  const candidateIds = new Set(sideGroup.candidates.map((candidate) => candidate.id));
+  const candidates = sideGroup.candidates
+    .map((candidate) => playersById.get(candidate.id))
+    .filter((player): player is PlayerWithAliases => Boolean(player));
+  const sameSideCandidates = candidates.filter(
+    (player) => player.side === sideGroup.side
+  );
+  const otherCandidates = candidates.filter(
+    (player) => player.side !== sideGroup.side
+  );
+  const sameSide = players
+    .filter((player) => player.side === sideGroup.side && !candidateIds.has(player.id))
+    .sort((a, b) => a.name.localeCompare(b.name));
+  const others = players
+    .filter((player) => player.side !== sideGroup.side && !candidateIds.has(player.id))
+    .sort((a, b) => {
+      if (a.side !== b.side) return a.side.localeCompare(b.side);
+      return a.name.localeCompare(b.name);
+    });
+
+  return { sameSideCandidates, sameSide, otherCandidates, others };
+}
+
+function getPlayerOptionLabel(player: PlayerWithAliases) {
+  return `${player.name} - ${getTeamTheme(player.side).short}`;
+}
+
 export default function PlayerList({ players, rankingsAudit }: Props) {
   const [playerList, setPlayerList] = useState<PlayerWithAliases[]>(players);
   const [audit, setAudit] = useState<RankingsDataHealthAudit>(rankingsAudit);
@@ -154,6 +217,8 @@ export default function PlayerList({ players, rankingsAudit }: Props) {
   const [mergeTargetId, setMergeTargetId] = useState(players[1]?.id ?? "");
   const [mergeLoading, setMergeLoading] = useState(false);
   const [recalculateLoading, setRecalculateLoading] = useState(false);
+  const [linkDrafts, setLinkDrafts] = useState<Record<string, string>>({});
+  const [linkLoadingKey, setLinkLoadingKey] = useState<string | null>(null);
   const [deletionPreview, setDeletionPreview] =
     useState<ExistingPlayerDeletionPreview | null>(null);
 
@@ -359,9 +424,10 @@ export default function PlayerList({ players, rankingsAudit }: Props) {
   }
 
   async function recarregarJogadores() {
-    const [updatedPlayers, updatedAudit] = await Promise.all([
+    const [updatedPlayers, updatedAudit, updatedUsage] = await Promise.all([
       getPlayersWithAliases(),
       getRankingsDataHealthAudit(),
+      getPlayerEventUsageIndex(),
     ]);
     const nextSourceId = updatedPlayers[0]?.id ?? "";
     const nextTargetId =
@@ -369,9 +435,60 @@ export default function PlayerList({ players, rankingsAudit }: Props) {
 
     setPlayerList(updatedPlayers);
     setAudit(updatedAudit);
+    setHasAnyEvent(updatedUsage.hasAnyEvent);
     setAliasesByPlayerId(buildAliasState(updatedPlayers));
     setMergeSourceId(nextSourceId);
     setMergeTargetId(nextTargetId);
+  }
+
+  async function vincularEventosSemJogador(
+    group: UnlinkedAuditGroup,
+    sideGroup: UnlinkedAuditSideGroup
+  ) {
+    const key = getLinkGroupKey(group, sideGroup);
+    const selectedPlayerId =
+      linkDrafts[key] ?? getDefaultLinkPlayerId(playerList, sideGroup);
+    const selectedPlayer = playerList.find((player) => player.id === selectedPlayerId);
+
+    if (!selectedPlayer) {
+      setFeedback("Selecione um jogador válido para vincular os eventos.");
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `Vincular ${formatNumber(sideGroup.count)} eventos de ${group.displayName} (${formatAuditSide(
+        sideGroup.side
+      )}) ao jogador ${selectedPlayer.name}?`
+    );
+
+    if (!confirmed) return;
+
+    try {
+      setLinkLoadingKey(key);
+      const result = await linkUnresolvedEventsToPlayer({
+        normalizedPlayerName: group.normalizedName,
+        side: sideGroup.side,
+        playerId: selectedPlayer.id,
+      });
+
+      await recarregarJogadores();
+      setLinkDrafts((current) => {
+        const next = { ...current };
+        delete next[key];
+        return next;
+      });
+      setFeedback(
+        `${result.updatedEvents} evento(s) de ${group.displayName} vinculados a ${selectedPlayer.name}.`
+      );
+    } catch (error: unknown) {
+      const message = formatSupabaseError(
+        error,
+        "Erro ao vincular eventos ao jogador."
+      );
+      setFeedback(message);
+    } finally {
+      setLinkLoadingKey(null);
+    }
   }
 
   async function abrirExclusao(playerId: string) {
@@ -703,6 +820,129 @@ export default function PlayerList({ players, rankingsAudit }: Props) {
                           </span>
                         ))}
                       </div>
+
+                      <div className="mt-3 space-y-3">
+                        {group.sideGroups.map((sideGroup) => {
+                          const key = getLinkGroupKey(group, sideGroup);
+                          const selectedPlayerId =
+                            linkDrafts[key] ??
+                            getDefaultLinkPlayerId(playerList, sideGroup);
+                          const optionGroups = getLinkOptionGroups(playerList, sideGroup);
+                          const isLinking = linkLoadingKey === key;
+
+                          return (
+                            <div
+                              key={key}
+                              className="rounded-lg border border-zinc-800 bg-zinc-950 p-3"
+                            >
+                              <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                                <div>
+                                  <p className="text-sm font-bold text-zinc-100">
+                                    {formatAuditSide(sideGroup.side)} ·{" "}
+                                    {formatNumber(sideGroup.count)} evento(s)
+                                  </p>
+                                  <div className="mt-2 flex flex-wrap gap-2">
+                                    {sideGroup.breakdown.map((item) => (
+                                      <span
+                                        key={`${key}-${item.eventType}`}
+                                        className="rounded-full border border-zinc-700 px-2 py-1 text-xs text-zinc-300"
+                                      >
+                                        {formatEventType(item.eventType)} ·{" "}
+                                        {formatNumber(item.count)}
+                                      </span>
+                                    ))}
+                                  </div>
+                                </div>
+                              </div>
+
+                              {sideGroup.candidates.length > 0 ? (
+                                <p className="mt-3 text-xs text-zinc-500">
+                                  Candidatos:{" "}
+                                  {sideGroup.candidates
+                                    .map(
+                                      (candidate) =>
+                                        `${candidate.name} (${formatAuditSide(candidate.side)}: ${candidate.reason})`
+                                    )
+                                    .join(", ")}
+                                </p>
+                              ) : (
+                                <p className="mt-3 text-xs text-zinc-500">
+                                  Nenhum candidato direto. Escolha manualmente qualquer jogador.
+                                </p>
+                              )}
+
+                              <div className="mt-3 grid gap-2 lg:grid-cols-[1fr_auto]">
+                                <select
+                                  value={selectedPlayerId}
+                                  onChange={(event) =>
+                                    setLinkDrafts((current) => ({
+                                      ...current,
+                                      [key]: event.target.value,
+                                    }))
+                                  }
+                                  className="min-w-0 rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-3 text-sm text-white"
+                                  disabled={isLinking || playerList.length === 0}
+                                >
+                                  {optionGroups.sameSideCandidates.length > 0 ? (
+                                    <optgroup label="Candidatos do mesmo lado">
+                                      {optionGroups.sameSideCandidates.map((player) => (
+                                        <option key={player.id} value={player.id}>
+                                          {getPlayerOptionLabel(player)}
+                                        </option>
+                                      ))}
+                                    </optgroup>
+                                  ) : null}
+
+                                  {optionGroups.sameSide.length > 0 ? (
+                                    <optgroup label="Mesmo lado">
+                                      {optionGroups.sameSide.map((player) => (
+                                        <option key={player.id} value={player.id}>
+                                          {getPlayerOptionLabel(player)}
+                                        </option>
+                                      ))}
+                                    </optgroup>
+                                  ) : null}
+
+                                  {optionGroups.otherCandidates.length > 0 ? (
+                                    <optgroup label="Candidatos de outro lado">
+                                      {optionGroups.otherCandidates.map((player) => (
+                                        <option key={player.id} value={player.id}>
+                                          {getPlayerOptionLabel(player)}
+                                        </option>
+                                      ))}
+                                    </optgroup>
+                                  ) : null}
+
+                                  {optionGroups.others.length > 0 ? (
+                                    <optgroup label="Outros jogadores">
+                                      {optionGroups.others.map((player) => (
+                                        <option key={player.id} value={player.id}>
+                                          {getPlayerOptionLabel(player)}
+                                        </option>
+                                      ))}
+                                    </optgroup>
+                                  ) : null}
+                                </select>
+
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    vincularEventosSemJogador(group, sideGroup)
+                                  }
+                                  disabled={
+                                    isLinking ||
+                                    playerList.length === 0 ||
+                                    !selectedPlayerId
+                                  }
+                                  className="rounded-lg bg-blue-700 px-4 py-3 text-sm font-bold text-white transition hover:bg-blue-600 disabled:opacity-50"
+                                >
+                                  {isLinking ? "Vinculando..." : "Vincular eventos"}
+                                </button>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
                     </div>
                   ))
                 )}
@@ -721,6 +961,16 @@ export default function PlayerList({ players, rankingsAudit }: Props) {
               </summary>
 
               <div className="mt-3 space-y-2">
+                <p className="text-xs text-zinc-500">
+                  Use Editar ou Mesclar jogadores para resolver.{" "}
+                  <a
+                    href={`#${CURATION_SECTION_ID}`}
+                    className="font-bold text-blue-300 hover:text-blue-200"
+                  >
+                    Ir para curadoria
+                  </a>
+                </p>
+
                 {audit.aliasConflicts.length === 0 ? (
                   <p className="text-sm text-zinc-400">Nenhum conflito de alias.</p>
                 ) : (
@@ -770,6 +1020,16 @@ export default function PlayerList({ players, rankingsAudit }: Props) {
               </summary>
 
               <div className="mt-3 space-y-2">
+                <p className="text-xs text-zinc-500">
+                  Use Editar ou Mesclar jogadores para resolver.{" "}
+                  <a
+                    href={`#${CURATION_SECTION_ID}`}
+                    className="font-bold text-blue-300 hover:text-blue-200"
+                  >
+                    Ir para curadoria
+                  </a>
+                </p>
+
                 {audit.possibleDuplicateGroups.length === 0 ? (
                   <p className="text-sm text-zinc-400">Nenhum duplicado suspeito.</p>
                 ) : (
@@ -801,7 +1061,10 @@ export default function PlayerList({ players, rankingsAudit }: Props) {
         )}
       </section>
 
-      <section className="rounded-2xl border border-zinc-800 bg-zinc-900 p-4 sm:p-5">
+      <section
+        id={CURATION_SECTION_ID}
+        className="rounded-2xl border border-zinc-800 bg-zinc-900 p-4 sm:p-5"
+      >
         <h2 className="text-xl font-black">Curadoria assistida de jogadores</h2>
         <p className="mt-2 text-sm text-zinc-400">
           O sistema sugere suspeitas (com base em nomes e aliases). Nenhuma mesclagem é automática — a decisão final é sua.

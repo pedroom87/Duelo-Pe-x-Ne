@@ -31,10 +31,21 @@ export type DataHealthPlayerSummary = {
   side: string;
 };
 
+export type DataHealthPlayerCandidate = DataHealthPlayerSummary & {
+  reason: string;
+};
+
 export type UnlinkedEventBreakdown = {
   eventType: string;
   side: string;
   count: number;
+};
+
+export type UnlinkedEventSideGroup = {
+  side: string;
+  count: number;
+  breakdown: UnlinkedEventBreakdown[];
+  candidates: DataHealthPlayerCandidate[];
 };
 
 export type UnlinkedEventNameGroup = {
@@ -42,6 +53,7 @@ export type UnlinkedEventNameGroup = {
   displayName: string;
   count: number;
   breakdown: UnlinkedEventBreakdown[];
+  sideGroups: UnlinkedEventSideGroup[];
 };
 
 export type AliasConflict = {
@@ -175,6 +187,58 @@ function uniquePlayerSummaries(players: DataHealthPlayerSummary[]) {
   return Array.from(byId.values()).sort(sortPlayerSummaries);
 }
 
+function isKnownPlayerSide(side: string) {
+  return side === "PEDRO" || side === "NETU";
+}
+
+function getAuditCandidates(params: {
+  normalizedName: string;
+  side: string;
+  players: Player[];
+  aliases: PlayerAlias[];
+}) {
+  const { normalizedName, side, players, aliases } = params;
+  const playersById = new Map(players.map((player) => [player.id, player]));
+  const reasonsByPlayerId = new Map<string, Set<string>>();
+
+  function addReason(playerId: string, reason: string) {
+    const current = reasonsByPlayerId.get(playerId) ?? new Set<string>();
+    current.add(reason);
+    reasonsByPlayerId.set(playerId, current);
+  }
+
+  players.forEach((player) => {
+    if (normalizeText(player.name) === normalizedName) {
+      addReason(player.id, "nome oficial igual");
+    }
+  });
+
+  aliases.forEach((alias) => {
+    if (getNormalizedAlias(alias) === normalizedName) {
+      addReason(alias.player_id, "alias igual");
+    }
+  });
+
+  return Array.from(reasonsByPlayerId.entries())
+    .map(([playerId, reasons]) => {
+      const player = playersById.get(playerId);
+      if (!player) return null;
+
+      return {
+        ...playerToSummary(player),
+        reason: Array.from(reasons).join(", "),
+      };
+    })
+    .filter((player): player is DataHealthPlayerCandidate => Boolean(player))
+    .sort((a, b) => {
+      const aSameSide = isKnownPlayerSide(side) && a.side === side ? 0 : 1;
+      const bSameSide = isKnownPlayerSide(side) && b.side === side ? 0 : 1;
+
+      if (aSameSide !== bSameSide) return aSameSide - bSameSide;
+      return sortPlayerSummaries(a, b);
+    });
+}
+
 function getHealthStatus(linkedEventsPercent: number): DataHealthStatus {
   if (linkedEventsPercent >= 95) {
     return {
@@ -228,12 +292,22 @@ async function getAllRankingAuditEvents(): Promise<RankingAuditEvent[]> {
   return events;
 }
 
-function buildUnlinkedEventNameGroups(events: RankingAuditEvent[]) {
+function buildUnlinkedEventNameGroups(
+  events: RankingAuditEvent[],
+  players: Player[],
+  aliases: PlayerAlias[]
+) {
+  type DraftSideGroup = {
+    side: string;
+    count: number;
+    breakdown: Map<string, UnlinkedEventBreakdown>;
+  };
   type DraftGroup = {
     normalizedName: string;
     displayName: string;
     count: number;
     breakdown: Map<string, UnlinkedEventBreakdown>;
+    sideGroups: Map<string, DraftSideGroup>;
   };
 
   const groups = new Map<string, DraftGroup>();
@@ -248,6 +322,7 @@ function buildUnlinkedEventNameGroups(events: RankingAuditEvent[]) {
       displayName: rawName,
       count: 0,
       breakdown: new Map<string, UnlinkedEventBreakdown>(),
+      sideGroups: new Map<string, DraftSideGroup>(),
     };
 
     current.count += 1;
@@ -267,6 +342,24 @@ function buildUnlinkedEventNameGroups(events: RankingAuditEvent[]) {
 
     currentBreakdown.count += 1;
     current.breakdown.set(breakdownKey, currentBreakdown);
+
+    const currentSideGroup = current.sideGroups.get(side) ?? {
+      side,
+      count: 0,
+      breakdown: new Map<string, UnlinkedEventBreakdown>(),
+    };
+    const sideBreakdownKey = `${eventType}:${side}`;
+    const currentSideBreakdown = currentSideGroup.breakdown.get(sideBreakdownKey) ?? {
+      eventType,
+      side,
+      count: 0,
+    };
+
+    currentSideGroup.count += 1;
+    currentSideBreakdown.count += 1;
+    currentSideGroup.breakdown.set(sideBreakdownKey, currentSideBreakdown);
+    current.sideGroups.set(side, currentSideGroup);
+
     groups.set(normalizedName, current);
   });
 
@@ -279,6 +372,25 @@ function buildUnlinkedEventNameGroups(events: RankingAuditEvent[]) {
         if (b.count !== a.count) return b.count - a.count;
         return `${a.side}:${a.eventType}`.localeCompare(`${b.side}:${b.eventType}`);
       }),
+      sideGroups: Array.from(group.sideGroups.values())
+        .map((sideGroup) => ({
+          side: sideGroup.side,
+          count: sideGroup.count,
+          breakdown: Array.from(sideGroup.breakdown.values()).sort((a, b) => {
+            if (b.count !== a.count) return b.count - a.count;
+            return a.eventType.localeCompare(b.eventType);
+          }),
+          candidates: getAuditCandidates({
+            normalizedName: group.normalizedName,
+            side: sideGroup.side,
+            players,
+            aliases,
+          }),
+        }))
+        .sort((a, b) => {
+          if (b.count !== a.count) return b.count - a.count;
+          return a.side.localeCompare(b.side);
+        }),
     }))
     .sort((a, b) => {
       if (b.count !== a.count) return b.count - a.count;
@@ -530,7 +642,11 @@ export async function getRankingsDataHealthAudit(): Promise<RankingsDataHealthAu
     totalEvents === 0
       ? 100
       : Number(((eventsWithPlayerId / totalEvents) * 100).toFixed(1));
-  const unlinkedEventNames = buildUnlinkedEventNameGroups(events);
+  const unlinkedEventNames = buildUnlinkedEventNameGroups(
+    events,
+    playerList,
+    aliasList
+  );
   const aliasConflicts = buildAliasConflicts(playerList, aliasList);
   const possibleDuplicateGroups = buildPossibleDuplicateGroups(playerList, aliasList);
 
