@@ -18,6 +18,63 @@ export type PlayerWithAliases = Player & {
   aliases: PlayerAlias[];
 };
 
+export type DataHealthLevel = "Excelente" | "Boa" | "Atenção" | "Crítica";
+
+export type DataHealthStatus = {
+  label: DataHealthLevel;
+  description: string;
+};
+
+export type DataHealthPlayerSummary = {
+  id: string;
+  name: string;
+  side: string;
+};
+
+export type UnlinkedEventBreakdown = {
+  eventType: string;
+  side: string;
+  count: number;
+};
+
+export type UnlinkedEventNameGroup = {
+  normalizedName: string;
+  displayName: string;
+  count: number;
+  breakdown: UnlinkedEventBreakdown[];
+};
+
+export type AliasConflict = {
+  normalizedAlias: string;
+  aliasExamples: string[];
+  owners: DataHealthPlayerSummary[];
+  matchingPlayers: DataHealthPlayerSummary[];
+  reason: string;
+};
+
+export type PossibleDuplicatePlayerGroup = {
+  normalizedName: string;
+  reason: string;
+  players: DataHealthPlayerSummary[];
+  aliases: string[];
+};
+
+export type RankingsDataHealthAudit = {
+  totalEvents: number;
+  eventsWithPlayerId: number;
+  eventsWithoutPlayerId: number;
+  linkedEventsPercent: number;
+  playersCount: number;
+  aliasesCount: number;
+  aliasConflictsCount: number;
+  possibleDuplicateGroupsCount: number;
+  health: DataHealthStatus;
+  unlinkedEventNames: UnlinkedEventNameGroup[];
+  aliasConflicts: AliasConflict[];
+  possibleDuplicateGroups: PossibleDuplicatePlayerGroup[];
+  hasRelevantIssues: boolean;
+};
+
 export type ExistingPlayerDeletionPreview = {
   status: "found";
   player: Player;
@@ -45,11 +102,22 @@ type PlayerUsageEvent = {
   match_number: number | null;
 };
 
+type RankingAuditEvent = {
+  id: string;
+  player_id: string | null;
+  player_name_raw: string | null;
+  side: string | null;
+  event_type: string | null;
+};
+
 type PlayerAliasSearchResult = {
   alias: string;
   player_id: string;
   players: Player | Player[] | null;
 };
+
+const AUDIT_EVENT_PAGE_SIZE = 1000;
+const AUDIT_PREVIEW_LIMIT = 8;
 
 function getAliasPlayer(alias: PlayerAliasSearchResult) {
   if (Array.isArray(alias.players)) {
@@ -57,6 +125,347 @@ function getAliasPlayer(alias: PlayerAliasSearchResult) {
   }
 
   return alias.players;
+}
+
+function addToListMap<TKey, TValue>(
+  map: Map<TKey, TValue[]>,
+  key: TKey,
+  value: TValue
+) {
+  const current = map.get(key) ?? [];
+  current.push(value);
+  map.set(key, current);
+}
+
+function getNormalizedAlias(alias: PlayerAlias) {
+  return normalizeText(alias.normalized_alias || alias.alias);
+}
+
+function playerToSummary(player: Player): DataHealthPlayerSummary {
+  return {
+    id: player.id,
+    name: player.name,
+    side: player.side,
+  };
+}
+
+function unknownPlayerSummary(playerId: string): DataHealthPlayerSummary {
+  return {
+    id: playerId,
+    name: "Jogador não encontrado",
+    side: "-",
+  };
+}
+
+function sortPlayerSummaries(
+  a: DataHealthPlayerSummary,
+  b: DataHealthPlayerSummary
+) {
+  if (a.side !== b.side) return a.side.localeCompare(b.side);
+  return a.name.localeCompare(b.name);
+}
+
+function uniquePlayerSummaries(players: DataHealthPlayerSummary[]) {
+  const byId = new Map<string, DataHealthPlayerSummary>();
+
+  players.forEach((player) => {
+    byId.set(player.id, player);
+  });
+
+  return Array.from(byId.values()).sort(sortPlayerSummaries);
+}
+
+function getHealthStatus(linkedEventsPercent: number): DataHealthStatus {
+  if (linkedEventsPercent >= 95) {
+    return {
+      label: "Excelente",
+      description: "Rankings com alta confiabilidade.",
+    };
+  }
+
+  if (linkedEventsPercent >= 80) {
+    return {
+      label: "Boa",
+      description: "Rankings confiáveis, com poucos pontos para revisar.",
+    };
+  }
+
+  if (linkedEventsPercent >= 50) {
+    return {
+      label: "Atenção",
+      description: "Rankings podem ser afetados por eventos sem vínculo.",
+    };
+  }
+
+  return {
+    label: "Crítica",
+    description: "Rankings precisam de curadoria antes de serem confiáveis.",
+  };
+}
+
+async function getAllRankingAuditEvents(): Promise<RankingAuditEvent[]> {
+  const events: RankingAuditEvent[] = [];
+  let from = 0;
+
+  while (true) {
+    const { data, error } = await supabase
+      .from("events")
+      .select("id, player_id, player_name_raw, side, event_type")
+      .order("match_number", { ascending: true })
+      .order("seq", { ascending: true })
+      .range(from, from + AUDIT_EVENT_PAGE_SIZE - 1);
+
+    if (error) throw error;
+
+    const page = (data ?? []) as RankingAuditEvent[];
+    events.push(...page);
+
+    if (page.length < AUDIT_EVENT_PAGE_SIZE) break;
+
+    from += AUDIT_EVENT_PAGE_SIZE;
+  }
+
+  return events;
+}
+
+function buildUnlinkedEventNameGroups(events: RankingAuditEvent[]) {
+  type DraftGroup = {
+    normalizedName: string;
+    displayName: string;
+    count: number;
+    breakdown: Map<string, UnlinkedEventBreakdown>;
+  };
+
+  const groups = new Map<string, DraftGroup>();
+
+  events.forEach((event) => {
+    if (event.player_id) return;
+
+    const rawName = event.player_name_raw?.trim() || "Jogador sem nome";
+    const normalizedName = normalizeText(rawName) || "sem-nome";
+    const current = groups.get(normalizedName) ?? {
+      normalizedName,
+      displayName: rawName,
+      count: 0,
+      breakdown: new Map<string, UnlinkedEventBreakdown>(),
+    };
+
+    current.count += 1;
+
+    if (current.displayName === "Jogador sem nome" && rawName !== current.displayName) {
+      current.displayName = rawName;
+    }
+
+    const eventType = event.event_type || "SEM_TIPO";
+    const side = event.side || "SEM_LADO";
+    const breakdownKey = `${eventType}:${side}`;
+    const currentBreakdown = current.breakdown.get(breakdownKey) ?? {
+      eventType,
+      side,
+      count: 0,
+    };
+
+    currentBreakdown.count += 1;
+    current.breakdown.set(breakdownKey, currentBreakdown);
+    groups.set(normalizedName, current);
+  });
+
+  return Array.from(groups.values())
+    .map((group) => ({
+      normalizedName: group.normalizedName,
+      displayName: group.displayName,
+      count: group.count,
+      breakdown: Array.from(group.breakdown.values()).sort((a, b) => {
+        if (b.count !== a.count) return b.count - a.count;
+        return `${a.side}:${a.eventType}`.localeCompare(`${b.side}:${b.eventType}`);
+      }),
+    }))
+    .sort((a, b) => {
+      if (b.count !== a.count) return b.count - a.count;
+      return a.displayName.localeCompare(b.displayName);
+    });
+}
+
+function buildAliasConflicts(players: Player[], aliases: PlayerAlias[]) {
+  const playersById = new Map(players.map((player) => [player.id, player]));
+  const playersByNormalizedName = new Map<string, Player[]>();
+  const aliasesByNormalized = new Map<string, PlayerAlias[]>();
+
+  players.forEach((player) => {
+    const normalizedName = normalizeText(player.name);
+    if (!normalizedName) return;
+    addToListMap(playersByNormalizedName, normalizedName, player);
+  });
+
+  aliases.forEach((alias) => {
+    const normalizedAlias = getNormalizedAlias(alias);
+    if (!normalizedAlias) return;
+    addToListMap(aliasesByNormalized, normalizedAlias, alias);
+  });
+
+  const conflicts: AliasConflict[] = [];
+
+  aliasesByNormalized.forEach((items, normalizedAlias) => {
+    const ownerIds = Array.from(new Set(items.map((item) => item.player_id)));
+    const matchingPlayers = playersByNormalizedName.get(normalizedAlias) ?? [];
+    const foreignMatches = matchingPlayers.filter(
+      (player) => !ownerIds.includes(player.id)
+    );
+    const reasons: string[] = [];
+
+    if (ownerIds.length > 1) {
+      reasons.push("mesmo alias vinculado a jogadores diferentes");
+    }
+
+    if (foreignMatches.length > 0) {
+      reasons.push("alias também parece nome oficial de outro jogador");
+    }
+
+    if (reasons.length === 0) return;
+
+    conflicts.push({
+      normalizedAlias,
+      aliasExamples: Array.from(new Set(items.map((item) => item.alias))).slice(
+        0,
+        3
+      ),
+      owners: uniquePlayerSummaries(
+        ownerIds.map((playerId) => {
+          const player = playersById.get(playerId);
+          return player ? playerToSummary(player) : unknownPlayerSummary(playerId);
+        })
+      ),
+      matchingPlayers: uniquePlayerSummaries(foreignMatches.map(playerToSummary)),
+      reason: reasons.join("; "),
+    });
+  });
+
+  return conflicts.sort((a, b) => {
+    if (b.owners.length !== a.owners.length) return b.owners.length - a.owners.length;
+    return a.normalizedAlias.localeCompare(b.normalizedAlias);
+  });
+}
+
+function buildPossibleDuplicateGroups(players: Player[], aliases: PlayerAlias[]) {
+  const playersById = new Map(players.map((player) => [player.id, player]));
+  const playersByNormalizedName = new Map<string, Player[]>();
+  const playersByNormalizedSide = new Map<string, Player[]>();
+  const aliasesByNormalized = new Map<string, PlayerAlias[]>();
+  const groups = new Map<string, PossibleDuplicatePlayerGroup>();
+
+  function addGroup(params: {
+    normalizedName: string;
+    reason: string;
+    players: Player[];
+    aliases?: string[];
+  }) {
+    const summaries = uniquePlayerSummaries(params.players.map(playerToSummary));
+    if (summaries.length < 2) return;
+
+    const key = `${params.normalizedName}:${summaries
+      .map((player) => player.id)
+      .sort()
+      .join("|")}`;
+    const existing = groups.get(key);
+
+    if (!existing) {
+      groups.set(key, {
+        normalizedName: params.normalizedName,
+        reason: params.reason,
+        players: summaries,
+        aliases: Array.from(new Set(params.aliases ?? [])).sort(),
+      });
+      return;
+    }
+
+    const reasons = new Set(existing.reason.split("; "));
+    reasons.add(params.reason);
+
+    groups.set(key, {
+      ...existing,
+      reason: Array.from(reasons).join("; "),
+      aliases: Array.from(new Set([...existing.aliases, ...(params.aliases ?? [])])).sort(),
+    });
+  }
+
+  players.forEach((player) => {
+    const normalizedName = normalizeText(player.name);
+    if (!normalizedName) return;
+
+    addToListMap(playersByNormalizedName, normalizedName, player);
+    addToListMap(playersByNormalizedSide, `${normalizedName}:${player.side}`, player);
+  });
+
+  aliases.forEach((alias) => {
+    const normalizedAlias = getNormalizedAlias(alias);
+    if (!normalizedAlias) return;
+    addToListMap(aliasesByNormalized, normalizedAlias, alias);
+  });
+
+  playersByNormalizedSide.forEach((items, key) => {
+    if (items.length < 2) return;
+
+    const [normalizedName] = key.split(":");
+    addGroup({
+      normalizedName,
+      reason: "mesmo nome normalizado no mesmo lado",
+      players: items,
+    });
+  });
+
+  aliases.forEach((alias) => {
+    const owner = playersById.get(alias.player_id);
+    if (!owner) return;
+
+    const normalizedAlias = getNormalizedAlias(alias);
+    if (!normalizedAlias) return;
+
+    const relatedPlayers = (playersByNormalizedName.get(normalizedAlias) ?? []).filter(
+      (player) => player.id !== owner.id && player.side === owner.side
+    );
+
+    if (relatedPlayers.length === 0) return;
+
+    addGroup({
+      normalizedName: normalizedAlias,
+      reason: "alias aponta para nome de outro jogador do mesmo lado",
+      players: [owner, ...relatedPlayers],
+      aliases: [alias.alias],
+    });
+  });
+
+  aliasesByNormalized.forEach((items, normalizedAlias) => {
+    const ownerPlayers = uniquePlayerSummaries(
+      items
+        .map((item) => playersById.get(item.player_id))
+        .filter((player): player is Player => Boolean(player))
+        .map(playerToSummary)
+    );
+
+    const playersBySide = new Map<string, Player[]>();
+
+    ownerPlayers.forEach((owner) => {
+      const player = playersById.get(owner.id);
+      if (!player) return;
+      addToListMap(playersBySide, player.side, player);
+    });
+
+    playersBySide.forEach((sidePlayers) => {
+      if (sidePlayers.length < 2) return;
+
+      addGroup({
+        normalizedName: normalizedAlias,
+        reason: "mesmo alias em jogadores do mesmo lado",
+        players: sidePlayers,
+        aliases: Array.from(new Set(items.map((item) => item.alias))).slice(0, 3),
+      });
+    });
+  });
+
+  return Array.from(groups.values()).sort((a, b) => {
+    if (b.players.length !== a.players.length) return b.players.length - a.players.length;
+    return a.normalizedName.localeCompare(b.normalizedName);
+  });
 }
 
 export async function getPlayers() {
@@ -93,6 +502,56 @@ export async function getPlayersWithAliases(): Promise<PlayerWithAliases[]> {
     ...player,
     aliases: aliasesByPlayerId.get(player.id) ?? [],
   }));
+}
+
+export async function getRankingsDataHealthAudit(): Promise<RankingsDataHealthAudit> {
+  const [
+    { data: players, error: playersError },
+    { data: aliases, error: aliasesError },
+    events,
+  ] = await Promise.all([
+    supabase.from("players").select("id, name, side").order("name"),
+    supabase
+      .from("player_aliases")
+      .select("id, player_id, alias, normalized_alias")
+      .order("alias"),
+    getAllRankingAuditEvents(),
+  ]);
+
+  if (playersError) throw playersError;
+  if (aliasesError) throw aliasesError;
+
+  const playerList = (players ?? []) as Player[];
+  const aliasList = (aliases ?? []) as PlayerAlias[];
+  const eventsWithPlayerId = events.filter((event) => Boolean(event.player_id)).length;
+  const totalEvents = events.length;
+  const eventsWithoutPlayerId = totalEvents - eventsWithPlayerId;
+  const linkedEventsPercent =
+    totalEvents === 0
+      ? 100
+      : Number(((eventsWithPlayerId / totalEvents) * 100).toFixed(1));
+  const unlinkedEventNames = buildUnlinkedEventNameGroups(events);
+  const aliasConflicts = buildAliasConflicts(playerList, aliasList);
+  const possibleDuplicateGroups = buildPossibleDuplicateGroups(playerList, aliasList);
+
+  return {
+    totalEvents,
+    eventsWithPlayerId,
+    eventsWithoutPlayerId,
+    linkedEventsPercent,
+    playersCount: playerList.length,
+    aliasesCount: aliasList.length,
+    aliasConflictsCount: aliasConflicts.length,
+    possibleDuplicateGroupsCount: possibleDuplicateGroups.length,
+    health: getHealthStatus(linkedEventsPercent),
+    unlinkedEventNames: unlinkedEventNames.slice(0, AUDIT_PREVIEW_LIMIT),
+    aliasConflicts: aliasConflicts.slice(0, AUDIT_PREVIEW_LIMIT),
+    possibleDuplicateGroups: possibleDuplicateGroups.slice(0, AUDIT_PREVIEW_LIMIT),
+    hasRelevantIssues:
+      eventsWithoutPlayerId > 0 ||
+      aliasConflicts.length > 0 ||
+      possibleDuplicateGroups.length > 0,
+  };
 }
 
 export async function getPlayerDeletionPreview(

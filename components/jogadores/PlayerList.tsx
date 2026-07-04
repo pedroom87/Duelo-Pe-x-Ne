@@ -6,10 +6,12 @@ import {
   getPlayersWithAliases,
   getPlayerDeletionPreview,
   getPlayerEventUsageIndex,
+  getRankingsDataHealthAudit,
   updatePlayerBasic,
   type ExistingPlayerDeletionPreview,
   type PlayerAlias,
   type PlayerWithAliases,
+  type RankingsDataHealthAudit,
 } from "@/lib/players";
 import {
   addAlias,
@@ -24,6 +26,7 @@ import { getTeamSide, getTeamTheme } from "@/utils/constants";
 
 interface Props {
   players: PlayerWithAliases[];
+  rankingsAudit: RankingsDataHealthAudit;
 }
 
 function buildAliasState(players: PlayerWithAliases[]) {
@@ -69,8 +72,80 @@ function playerHasStrongDuplicateSignal(params: {
   return false;
 }
 
-export default function PlayerList({ players }: Props) {
+function formatNumber(value: number) {
+  return value.toLocaleString("pt-BR");
+}
+
+function formatPercent(value: number) {
+  return `${value.toLocaleString("pt-BR", {
+    minimumFractionDigits: 1,
+    maximumFractionDigits: 1,
+  })}%`;
+}
+
+function formatEventType(eventType: string) {
+  const labels: Record<string, string> = {
+    GOL: "Gol",
+    ASSISTENCIA: "Assistência",
+    AMARELO: "Amarelo",
+    VERMELHO: "Vermelho",
+    LESAO: "Lesão",
+    GOL_CONTRA: "Gol contra",
+    SEM_TIPO: "Sem tipo",
+  };
+
+  return labels[eventType] ?? eventType;
+}
+
+function formatAuditSide(side: string) {
+  if (side === "PEDRO" || side === "NETU") {
+    return getTeamTheme(side).short;
+  }
+
+  return side === "SEM_LADO" ? "Sem lado" : side;
+}
+
+function getHealthClasses(label: RankingsDataHealthAudit["health"]["label"]) {
+  if (label === "Excelente") {
+    return "border-emerald-700 bg-emerald-950/35 text-emerald-200";
+  }
+
+  if (label === "Boa") {
+    return "border-blue-700 bg-blue-950/35 text-blue-200";
+  }
+
+  if (label === "Atenção") {
+    return "border-yellow-700 bg-yellow-950/35 text-yellow-200";
+  }
+
+  return "border-red-700 bg-red-950/35 text-red-200";
+}
+
+function AuditMetricCard({
+  label,
+  value,
+  description,
+}: {
+  label: string;
+  value: string;
+  description?: string;
+}) {
+  return (
+    <div className="rounded-xl border border-zinc-800 bg-zinc-950 p-3">
+      <p className="text-xs font-bold uppercase tracking-[0.25em] text-zinc-500">
+        {label}
+      </p>
+      <p className="mt-2 text-2xl font-black text-zinc-100">{value}</p>
+      {description ? (
+        <p className="mt-1 text-xs text-zinc-500">{description}</p>
+      ) : null}
+    </div>
+  );
+}
+
+export default function PlayerList({ players, rankingsAudit }: Props) {
   const [playerList, setPlayerList] = useState<PlayerWithAliases[]>(players);
+  const [audit, setAudit] = useState<RankingsDataHealthAudit>(rankingsAudit);
   const [aliasesByPlayerId, setAliasesByPlayerId] = useState(buildAliasState(players));
   const [search, setSearch] = useState("");
   const [drafts, setDrafts] = useState<Record<string, string>>({});
@@ -284,12 +359,16 @@ export default function PlayerList({ players }: Props) {
   }
 
   async function recarregarJogadores() {
-    const updatedPlayers = await getPlayersWithAliases();
+    const [updatedPlayers, updatedAudit] = await Promise.all([
+      getPlayersWithAliases(),
+      getRankingsDataHealthAudit(),
+    ]);
     const nextSourceId = updatedPlayers[0]?.id ?? "";
     const nextTargetId =
       updatedPlayers.find((player) => player.id !== nextSourceId)?.id ?? "";
 
     setPlayerList(updatedPlayers);
+    setAudit(updatedAudit);
     setAliasesByPlayerId(buildAliasState(updatedPlayers));
     setMergeSourceId(nextSourceId);
     setMergeTargetId(nextTargetId);
@@ -483,6 +562,42 @@ export default function PlayerList({ players }: Props) {
     }
   }
 
+  const auditCards = [
+    {
+      label: "Total de eventos",
+      value: formatNumber(audit.totalEvents),
+    },
+    {
+      label: "Com player_id",
+      value: formatNumber(audit.eventsWithPlayerId),
+    },
+    {
+      label: "Sem player_id",
+      value: formatNumber(audit.eventsWithoutPlayerId),
+    },
+    {
+      label: "% vinculados",
+      value: formatPercent(audit.linkedEventsPercent),
+      description: audit.health.description,
+    },
+    {
+      label: "Jogadores",
+      value: formatNumber(audit.playersCount),
+    },
+    {
+      label: "Aliases",
+      value: formatNumber(audit.aliasesCount),
+    },
+    {
+      label: "Conflitos de alias",
+      value: formatNumber(audit.aliasConflictsCount),
+    },
+    {
+      label: "Duplicados suspeitos",
+      value: formatNumber(audit.possibleDuplicateGroupsCount),
+    },
+  ];
+
   return (
     <div className="space-y-6">
       <div className="grid gap-3 lg:grid-cols-[1fr_auto]">
@@ -502,6 +617,189 @@ export default function PlayerList({ players }: Props) {
           {recalculateLoading ? "Recalculando..." : "Recalcular Rankings"}
         </button>
       </div>
+
+      <section className="rounded-2xl border border-zinc-800 bg-zinc-900 p-4 sm:p-5">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <h2 className="text-xl font-black">Saúde dos Dados</h2>
+            <p className="mt-2 text-sm text-zinc-400">
+              Auditoria somente leitura para medir a confiabilidade dos rankings antes de novas correções manuais.
+            </p>
+          </div>
+
+          <div
+            className={`rounded-xl border px-4 py-3 text-sm font-bold ${getHealthClasses(
+              audit.health.label
+            )}`}
+          >
+            <p className="text-xs uppercase tracking-[0.25em] opacity-80">
+              Saúde
+            </p>
+            <p className="mt-1 text-lg">{audit.health.label}</p>
+          </div>
+        </div>
+
+        <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+          {auditCards.map((card) => (
+            <AuditMetricCard
+              key={card.label}
+              label={card.label}
+              value={card.value}
+              description={card.description}
+            />
+          ))}
+        </div>
+
+        {!audit.hasRelevantIssues ? (
+          <p className="mt-5 rounded-xl border border-emerald-800 bg-emerald-950/25 px-4 py-3 text-sm font-semibold text-emerald-200">
+            Nenhuma inconsistência relevante encontrada.
+          </p>
+        ) : (
+          <div className="mt-5 grid gap-3 xl:grid-cols-3">
+            <details
+              className="rounded-xl border border-zinc-800 bg-zinc-950 p-3"
+              open={audit.eventsWithoutPlayerId > 0}
+            >
+              <summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-sm font-bold text-zinc-100">
+                <span>Eventos sem player_id</span>
+                <span className="rounded-full border border-zinc-700 px-2 py-1 text-xs text-zinc-300">
+                  {formatNumber(audit.eventsWithoutPlayerId)}
+                </span>
+              </summary>
+
+              <div className="mt-3 space-y-2">
+                <p className="text-xs text-zinc-500">
+                  Amostra dos nomes brutos mais frequentes, agrupados por nome normalizado.
+                </p>
+
+                {audit.unlinkedEventNames.length === 0 ? (
+                  <p className="text-sm text-zinc-400">Nenhum evento sem vínculo.</p>
+                ) : (
+                  audit.unlinkedEventNames.map((group) => (
+                    <div
+                      key={group.normalizedName}
+                      className="rounded-lg border border-zinc-800 bg-zinc-900 p-3"
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <p className="font-bold text-zinc-100">{group.displayName}</p>
+                          <p className="mt-1 text-xs text-zinc-500">
+                            normalizado: {group.normalizedName}
+                          </p>
+                        </div>
+                        <span className="rounded-full bg-zinc-800 px-2 py-1 text-xs font-bold text-zinc-200">
+                          {formatNumber(group.count)}
+                        </span>
+                      </div>
+
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        {group.breakdown.map((item) => (
+                          <span
+                            key={`${group.normalizedName}-${item.eventType}-${item.side}`}
+                            className="rounded-full border border-zinc-700 px-2 py-1 text-xs text-zinc-300"
+                          >
+                            {formatEventType(item.eventType)} · {formatAuditSide(item.side)} ·{" "}
+                            {formatNumber(item.count)}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </details>
+
+            <details
+              className="rounded-xl border border-zinc-800 bg-zinc-950 p-3"
+              open={audit.aliasConflictsCount > 0}
+            >
+              <summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-sm font-bold text-zinc-100">
+                <span>Aliases conflitantes</span>
+                <span className="rounded-full border border-zinc-700 px-2 py-1 text-xs text-zinc-300">
+                  {formatNumber(audit.aliasConflictsCount)}
+                </span>
+              </summary>
+
+              <div className="mt-3 space-y-2">
+                {audit.aliasConflicts.length === 0 ? (
+                  <p className="text-sm text-zinc-400">Nenhum conflito de alias.</p>
+                ) : (
+                  audit.aliasConflicts.map((conflict) => (
+                    <div
+                      key={conflict.normalizedAlias}
+                      className="rounded-lg border border-zinc-800 bg-zinc-900 p-3 text-sm"
+                    >
+                      <p className="font-bold text-zinc-100">
+                        {conflict.aliasExamples.join(", ")}
+                      </p>
+                      <p className="mt-1 text-xs text-zinc-500">
+                        normalizado: {conflict.normalizedAlias}
+                      </p>
+                      <p className="mt-2 text-xs text-yellow-200">{conflict.reason}</p>
+                      <p className="mt-2 text-xs text-zinc-400">
+                        Vinculado a:{" "}
+                        {conflict.owners
+                          .map((player) => `${player.name} (${formatAuditSide(player.side)})`)
+                          .join(", ")}
+                      </p>
+                      {conflict.matchingPlayers.length > 0 ? (
+                        <p className="mt-1 text-xs text-zinc-400">
+                          Também parece nome de:{" "}
+                          {conflict.matchingPlayers
+                            .map(
+                              (player) => `${player.name} (${formatAuditSide(player.side)})`
+                            )
+                            .join(", ")}
+                        </p>
+                      ) : null}
+                    </div>
+                  ))
+                )}
+              </div>
+            </details>
+
+            <details
+              className="rounded-xl border border-zinc-800 bg-zinc-950 p-3"
+              open={audit.possibleDuplicateGroupsCount > 0}
+            >
+              <summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-sm font-bold text-zinc-100">
+                <span>Duplicados suspeitos</span>
+                <span className="rounded-full border border-zinc-700 px-2 py-1 text-xs text-zinc-300">
+                  {formatNumber(audit.possibleDuplicateGroupsCount)}
+                </span>
+              </summary>
+
+              <div className="mt-3 space-y-2">
+                {audit.possibleDuplicateGroups.length === 0 ? (
+                  <p className="text-sm text-zinc-400">Nenhum duplicado suspeito.</p>
+                ) : (
+                  audit.possibleDuplicateGroups.map((group) => (
+                    <div
+                      key={`${group.normalizedName}-${group.players.map((player) => player.id).join("-")}`}
+                      className="rounded-lg border border-zinc-800 bg-zinc-900 p-3 text-sm"
+                    >
+                      <p className="font-bold text-zinc-100">
+                        {group.players
+                          .map((player) => `${player.name} (${formatAuditSide(player.side)})`)
+                          .join(", ")}
+                      </p>
+                      <p className="mt-1 text-xs text-zinc-500">
+                        normalizado: {group.normalizedName}
+                      </p>
+                      <p className="mt-2 text-xs text-yellow-200">{group.reason}</p>
+                      {group.aliases.length > 0 ? (
+                        <p className="mt-2 text-xs text-zinc-400">
+                          Alias relacionado: {group.aliases.join(", ")}
+                        </p>
+                      ) : null}
+                    </div>
+                  ))
+                )}
+              </div>
+            </details>
+          </div>
+        )}
+      </section>
 
       <section className="rounded-2xl border border-zinc-800 bg-zinc-900 p-4 sm:p-5">
         <h2 className="text-xl font-black">Curadoria assistida de jogadores</h2>
