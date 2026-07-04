@@ -1,5 +1,6 @@
 # Changelog
 
+- v0.9.0 — Auditoria de Reconciliação
 - v0.8.9 — Alias Órfão
 - v0.8.8 — Gestão de Aliases
 

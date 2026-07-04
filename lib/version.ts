@@ -9,16 +9,16 @@ export type VersionInfo = {
 };
 
 /**
- * Valores desta Sprint (Duel Legacy / 0.8.7)
+ * Valores desta Sprint (Duel Legacy / 0.9.0)
  */
-const VERSION_NUMBER = "0.8.9";
-const VERSION_CODENAME = "Alias Órfão";
+const VERSION_NUMBER = "0.9.0";
+const VERSION_CODENAME = "Auditoria de Reconciliação";
 const VERSION_RELEASED_AT = "2026-07-04";
 const VERSION_COMMIT = null;
 const VERSION_HIGHLIGHTS = [
-  "Correção manual de aliases órfãos",
-  "Reatribuição segura de aliases existentes",
-  "Melhoria na curadoria de jogadores",
+  "Auditoria de eventos sem jogador vinculado",
+  "Separação de pendências em partidas conferidas",
+  "Diagnóstico de impacto nos rankings históricos",
 ];
 
 function getCommitFromEnv() {

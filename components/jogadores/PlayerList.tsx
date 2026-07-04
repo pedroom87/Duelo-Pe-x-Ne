@@ -20,10 +20,8 @@ import {
   getAliasOwnerByNormalized,
   getAliases,
   mergePlayers,
-  recalculateEventPlayerIds,
   reassignAliasOwner,
 } from "@/lib/playerAliases";
-import { linkUnresolvedEventsToPlayer } from "@/lib/events";
 import { normalizeText } from "@/lib/playerIdentity";
 import { formatSupabaseError } from "@/lib/supabaseErrors";
 import { TeamBadge } from "@/components/teams/TeamBadge";
@@ -36,8 +34,10 @@ interface Props {
 }
 
 type UnlinkedAuditGroup = RankingsDataHealthAudit["unlinkedEventNames"][number];
-type UnlinkedAuditSideGroup = UnlinkedAuditGroup["sideGroups"][number];
 type GlobalSearchAlias = PlayerGlobalSearchIndex["aliases"][number];
+type ReconciliationSummary = RankingsDataHealthAudit["reconciliationSummary"];
+type ReconciliationSample = ReconciliationSummary["samples"]["safe"][number];
+type ReconciliationCandidate = ReconciliationSample["candidates"][number];
 
 const GLOBAL_SEARCH_SECTION_ID = "busca-global-jogadores";
 const CURATION_SECTION_ID = "curadoria-jogadores";
@@ -156,61 +156,165 @@ function AuditMetricCard({
   );
 }
 
-function getLinkGroupKey(group: UnlinkedAuditGroup, sideGroup: UnlinkedAuditSideGroup) {
-  return `${group.normalizedName}:${sideGroup.side}`;
+function formatMatchNumber(matchNumber: number | null) {
+  return matchNumber === null ? "Partida sem número" : `Jogo #${matchNumber}`;
 }
 
-function getDefaultLinkPlayerId(
-  players: PlayerWithAliases[],
-  sideGroup: UnlinkedAuditSideGroup
-) {
-  const playerIds = new Set(players.map((player) => player.id));
-  const firstSameSideCandidate = sideGroup.candidates.find(
-    (candidate) => candidate.side === sideGroup.side && playerIds.has(candidate.id)
+function formatVerificationLabel(verified: boolean) {
+  return verified ? "Conferida" : "Não conferida";
+}
+
+function formatReconciliationCandidate(candidate: ReconciliationCandidate) {
+  return `${candidate.name} (${formatAuditSide(candidate.side)}: ${candidate.reason})`;
+}
+
+function ReconciliationSampleList({
+  title,
+  samples,
+  emptyMessage,
+}: {
+  title: string;
+  samples: ReconciliationSample[];
+  emptyMessage: string;
+}) {
+  return (
+    <div className="rounded-xl border border-zinc-800 bg-zinc-950 p-3">
+      <p className="text-sm font-bold text-zinc-100">{title}</p>
+
+      {samples.length === 0 ? (
+        <p className="mt-3 text-xs text-zinc-500">{emptyMessage}</p>
+      ) : (
+        <div className="mt-3 space-y-2">
+          {samples.map((sample) => (
+            <div
+              key={sample.id}
+              className="rounded-lg border border-zinc-800 bg-zinc-900 p-3 text-xs"
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="break-words text-sm font-bold text-zinc-100">
+                    {sample.rawName}
+                  </p>
+                  <p className="mt-1 text-zinc-500">
+                    normalizado: {sample.normalizedName}
+                  </p>
+                </div>
+
+                <span
+                  className={`shrink-0 rounded-full border px-2 py-1 font-bold ${
+                    sample.verified
+                      ? "border-emerald-700 bg-emerald-950/30 text-emerald-200"
+                      : "border-yellow-700 bg-yellow-950/30 text-yellow-200"
+                  }`}
+                >
+                  {formatVerificationLabel(sample.verified)}
+                </span>
+              </div>
+
+              <div className="mt-3 flex flex-wrap gap-2 text-zinc-300">
+                <span className="rounded-full border border-zinc-700 px-2 py-1">
+                  {formatEventType(sample.eventType)}
+                </span>
+                <span className="rounded-full border border-zinc-700 px-2 py-1">
+                  {formatAuditSide(sample.side)}
+                </span>
+                <span className="rounded-full border border-zinc-700 px-2 py-1">
+                  {formatMatchNumber(sample.matchNumber)}
+                </span>
+              </div>
+
+              <p className="mt-3 text-zinc-400">
+                Candidatos:{" "}
+                {sample.candidates.length > 0
+                  ? sample.candidates.map(formatReconciliationCandidate).join(", ")
+                  : "Nenhum candidato"}
+              </p>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
   );
-  const firstCandidate = sideGroup.candidates.find((candidate) =>
-    playerIds.has(candidate.id)
-  );
+}
+
+function ReconciliationSummaryBlock({
+  summary,
+}: {
+  summary: ReconciliationSummary;
+}) {
+  const cards = [
+    {
+      label: "Eventos sem player_id",
+      value: formatNumber(summary.totalUnlinkedEvents),
+    },
+    {
+      label: "Em partidas conferidas",
+      value: formatNumber(summary.verifiedUnlinkedEvents),
+    },
+    {
+      label: "Em partidas não conferidas",
+      value: formatNumber(summary.unverifiedUnlinkedEvents),
+    },
+    {
+      label: "Vínculos seguros",
+      value: formatNumber(summary.safeCount),
+    },
+    {
+      label: "Seguros conferidos",
+      value: formatNumber(summary.safeVerifiedCount),
+    },
+    {
+      label: "Eventos ambíguos",
+      value: formatNumber(summary.ambiguousCount),
+    },
+    {
+      label: "Sem candidato",
+      value: formatNumber(summary.noCandidateCount),
+    },
+  ];
 
   return (
-    firstSameSideCandidate?.id ??
-    players.find((player) => player.side === sideGroup.side)?.id ??
-    firstCandidate?.id ??
-    players[0]?.id ??
-    ""
-  );
-}
+    <div className="mt-5 rounded-xl border border-blue-800 bg-blue-950/20 p-4">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+        <div>
+          <h3 className="text-lg font-black text-zinc-100">
+            Reconciliação segura dos rankings
+          </h3>
+          <p className="mt-2 text-sm text-blue-100">
+            Eventos de partidas conferidas sem jogador vinculado podem estar fora dos rankings.
+          </p>
+        </div>
 
-function getLinkOptionGroups(
-  players: PlayerWithAliases[],
-  sideGroup: UnlinkedAuditSideGroup
-) {
-  const playersById = new Map(players.map((player) => [player.id, player]));
-  const candidateIds = new Set(sideGroup.candidates.map((candidate) => candidate.id));
-  const candidates = sideGroup.candidates
-    .map((candidate) => playersById.get(candidate.id))
-    .filter((player): player is PlayerWithAliases => Boolean(player));
-  const sameSideCandidates = candidates.filter(
-    (player) => player.side === sideGroup.side
-  );
-  const otherCandidates = candidates.filter(
-    (player) => player.side !== sideGroup.side
-  );
-  const sameSide = players
-    .filter((player) => player.side === sideGroup.side && !candidateIds.has(player.id))
-    .sort((a, b) => a.name.localeCompare(b.name));
-  const others = players
-    .filter((player) => player.side !== sideGroup.side && !candidateIds.has(player.id))
-    .sort((a, b) => {
-      if (a.side !== b.side) return a.side.localeCompare(b.side);
-      return a.name.localeCompare(b.name);
-    });
+        <p className="rounded-lg border border-blue-700 bg-blue-950/40 px-3 py-2 text-xs font-bold text-blue-100">
+          Vinculação em lote será liberada após validação desta auditoria.
+        </p>
+      </div>
 
-  return { sameSideCandidates, sameSide, otherCandidates, others };
-}
+      <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+        {cards.map((card) => (
+          <AuditMetricCard key={card.label} label={card.label} value={card.value} />
+        ))}
+      </div>
 
-function getPlayerOptionLabel(player: PlayerWithAliases) {
-  return `${player.name} - ${getTeamTheme(player.side).short}`;
+      <div className="mt-4 grid gap-3 xl:grid-cols-3">
+        <ReconciliationSampleList
+          title="Amostras seguras"
+          samples={summary.samples.safe}
+          emptyMessage="Nenhum evento seguro nesta amostra."
+        />
+        <ReconciliationSampleList
+          title="Amostras ambíguas"
+          samples={summary.samples.ambiguous}
+          emptyMessage="Nenhum evento ambíguo nesta amostra."
+        />
+        <ReconciliationSampleList
+          title="Amostras sem candidato"
+          samples={summary.samples.noCandidate}
+          emptyMessage="Nenhum evento sem candidato nesta amostra."
+        />
+      </div>
+    </div>
+  );
 }
 
 function getSideSearchValues(side: string) {
@@ -393,9 +497,6 @@ export default function PlayerList({
   const [mergeSourceId, setMergeSourceId] = useState(players[0]?.id ?? "");
   const [mergeTargetId, setMergeTargetId] = useState(players[1]?.id ?? "");
   const [mergeLoading, setMergeLoading] = useState(false);
-  const [recalculateLoading, setRecalculateLoading] = useState(false);
-  const [linkDrafts, setLinkDrafts] = useState<Record<string, string>>({});
-  const [linkLoadingKey, setLinkLoadingKey] = useState<string | null>(null);
   const [deletionPreview, setDeletionPreview] =
     useState<ExistingPlayerDeletionPreview | null>(null);
 
@@ -697,21 +798,6 @@ export default function PlayerList({
     }
   }
 
-  async function handleRecalculateRankings() {
-    try {
-      setRecalculateLoading(true);
-      const result = await recalculateEventPlayerIds();
-      setFeedback(
-        `Recálculo concluído: ${result.updatedEvents}/${result.processedEvents} evento(s) atualizados, ${result.unresolvedEvents} sem vínculo.`
-      );
-    } catch (error: unknown) {
-      const message = formatSupabaseError(error, "Erro ao recalcular rankings.");
-      setFeedback(message);
-    } finally {
-      setRecalculateLoading(false);
-    }
-  }
-
   async function recarregarJogadores() {
     const [updatedPlayers, updatedAudit, updatedGlobalIndex] =
       await Promise.all([
@@ -729,56 +815,6 @@ export default function PlayerList({
     setAliasesByPlayerId(buildAliasState(updatedPlayers));
     setMergeSourceId(nextSourceId);
     setMergeTargetId(nextTargetId);
-  }
-
-  async function vincularEventosSemJogador(
-    group: UnlinkedAuditGroup,
-    sideGroup: UnlinkedAuditSideGroup
-  ) {
-    const key = getLinkGroupKey(group, sideGroup);
-    const selectedPlayerId =
-      linkDrafts[key] ?? getDefaultLinkPlayerId(playerList, sideGroup);
-    const selectedPlayer = playerList.find((player) => player.id === selectedPlayerId);
-
-    if (!selectedPlayer) {
-      setFeedback("Selecione um jogador válido para vincular os eventos.");
-      return;
-    }
-
-    const confirmed = window.confirm(
-      `Vincular ${formatNumber(sideGroup.count)} eventos de ${group.displayName} (${formatAuditSide(
-        sideGroup.side
-      )}) ao jogador ${selectedPlayer.name}?`
-    );
-
-    if (!confirmed) return;
-
-    try {
-      setLinkLoadingKey(key);
-      const result = await linkUnresolvedEventsToPlayer({
-        normalizedPlayerName: group.normalizedName,
-        side: sideGroup.side,
-        playerId: selectedPlayer.id,
-      });
-
-      await recarregarJogadores();
-      setLinkDrafts((current) => {
-        const next = { ...current };
-        delete next[key];
-        return next;
-      });
-      setFeedback(
-        `${result.updatedEvents} evento(s) de ${group.displayName} vinculados a ${selectedPlayer.name}.`
-      );
-    } catch (error: unknown) {
-      const message = formatSupabaseError(
-        error,
-        "Erro ao vincular eventos ao jogador."
-      );
-      setFeedback(message);
-    } finally {
-      setLinkLoadingKey(null);
-    }
   }
 
   async function abrirExclusao(playerId: string) {
@@ -902,6 +938,12 @@ export default function PlayerList({
             : "Sem evento provável encontrado"}
         </p>
 
+        {linkedEventsCount === 0 ? (
+          <p className="mt-3 rounded-xl border border-yellow-800 bg-yellow-950/25 px-3 py-2 text-xs font-semibold text-yellow-200">
+            Eventos vinculados zerados indicam vínculo pendente no histórico importado.
+          </p>
+        ) : null}
+
         {probableEventsCount > 0 ? (
           <div className="mt-3">
             <p className="text-xs uppercase tracking-[0.2em] text-zinc-500">
@@ -1019,6 +1061,7 @@ export default function PlayerList({
     }
   }
 
+  const reconciliation = audit.reconciliationSummary;
   const auditCards = [
     {
       label: "Total de eventos",
@@ -1057,22 +1100,13 @@ export default function PlayerList({
 
   return (
     <div className="space-y-6">
-      <div className="grid gap-3 lg:grid-cols-[1fr_auto]">
+      <div>
         <input
           value={search}
           onChange={(event) => setSearch(event.target.value)}
           placeholder="Pesquisar jogador ou alias..."
           className="w-full rounded-xl border border-zinc-700 bg-zinc-900 p-4"
         />
-
-        <button
-          type="button"
-          onClick={handleRecalculateRankings}
-          disabled={recalculateLoading}
-          className="rounded-xl border border-blue-700 bg-blue-900/40 px-5 py-4 font-bold text-blue-200 transition hover:bg-blue-900/60 disabled:opacity-50"
-        >
-          {recalculateLoading ? "Recalculando..." : "Recalcular Rankings"}
-        </button>
       </div>
 
       <section
@@ -1174,6 +1208,12 @@ export default function PlayerList({
                             </p>
                           </div>
                         </div>
+
+                        {player.eventsCount === 0 ? (
+                          <p className="mt-3 rounded-lg border border-yellow-800 bg-yellow-950/25 px-3 py-2 text-xs font-semibold text-yellow-200">
+                            Eventos vinculados zerados indicam vínculo pendente no histórico importado.
+                          </p>
+                        ) : null}
 
                         <div className="mt-3">
                           <p className="text-xs uppercase tracking-[0.2em] text-zinc-500">
@@ -1401,6 +1441,8 @@ export default function PlayerList({
           ))}
         </div>
 
+        <ReconciliationSummaryBlock summary={reconciliation} />
+
         {!audit.hasRelevantIssues ? (
           <p className="mt-5 rounded-xl border border-emerald-800 bg-emerald-950/25 px-4 py-3 text-sm font-semibold text-emerald-200">
             Nenhuma inconsistência relevante encontrada.
@@ -1458,12 +1500,7 @@ export default function PlayerList({
 
                       <div className="mt-3 space-y-3">
                         {group.sideGroups.map((sideGroup) => {
-                          const key = getLinkGroupKey(group, sideGroup);
-                          const selectedPlayerId =
-                            linkDrafts[key] ??
-                            getDefaultLinkPlayerId(playerList, sideGroup);
-                          const optionGroups = getLinkOptionGroups(playerList, sideGroup);
-                          const isLinking = linkLoadingKey === key;
+                          const key = `${group.normalizedName}:${sideGroup.side}`;
 
                           return (
                             <div
@@ -1502,78 +1539,13 @@ export default function PlayerList({
                                 </p>
                               ) : (
                                 <p className="mt-3 text-xs text-zinc-500">
-                                  Nenhum candidato direto. Escolha manualmente qualquer jogador.
+                                  Nenhum candidato compatível encontrado nesta amostra.
                                 </p>
                               )}
 
-                              <div className="mt-3 grid gap-2 lg:grid-cols-[1fr_auto]">
-                                <select
-                                  value={selectedPlayerId}
-                                  onChange={(event) =>
-                                    setLinkDrafts((current) => ({
-                                      ...current,
-                                      [key]: event.target.value,
-                                    }))
-                                  }
-                                  className="min-w-0 rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-3 text-sm text-white"
-                                  disabled={isLinking || playerList.length === 0}
-                                >
-                                  {optionGroups.sameSideCandidates.length > 0 ? (
-                                    <optgroup label="Candidatos do mesmo lado">
-                                      {optionGroups.sameSideCandidates.map((player) => (
-                                        <option key={player.id} value={player.id}>
-                                          {getPlayerOptionLabel(player)}
-                                        </option>
-                                      ))}
-                                    </optgroup>
-                                  ) : null}
-
-                                  {optionGroups.sameSide.length > 0 ? (
-                                    <optgroup label="Mesmo lado">
-                                      {optionGroups.sameSide.map((player) => (
-                                        <option key={player.id} value={player.id}>
-                                          {getPlayerOptionLabel(player)}
-                                        </option>
-                                      ))}
-                                    </optgroup>
-                                  ) : null}
-
-                                  {optionGroups.otherCandidates.length > 0 ? (
-                                    <optgroup label="Candidatos de outro lado">
-                                      {optionGroups.otherCandidates.map((player) => (
-                                        <option key={player.id} value={player.id}>
-                                          {getPlayerOptionLabel(player)}
-                                        </option>
-                                      ))}
-                                    </optgroup>
-                                  ) : null}
-
-                                  {optionGroups.others.length > 0 ? (
-                                    <optgroup label="Outros jogadores">
-                                      {optionGroups.others.map((player) => (
-                                        <option key={player.id} value={player.id}>
-                                          {getPlayerOptionLabel(player)}
-                                        </option>
-                                      ))}
-                                    </optgroup>
-                                  ) : null}
-                                </select>
-
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    vincularEventosSemJogador(group, sideGroup)
-                                  }
-                                  disabled={
-                                    isLinking ||
-                                    playerList.length === 0 ||
-                                    !selectedPlayerId
-                                  }
-                                  className="rounded-lg bg-blue-700 px-4 py-3 text-sm font-bold text-white transition hover:bg-blue-600 disabled:opacity-50"
-                                >
-                                  {isLinking ? "Vinculando..." : "Vincular eventos"}
-                                </button>
-                              </div>
+                              <p className="mt-3 rounded-lg border border-blue-800 bg-blue-950/25 px-3 py-2 text-xs font-semibold text-blue-100">
+                                Vinculação em lote será liberada após validação desta auditoria.
+                              </p>
                             </div>
                           );
                         })}

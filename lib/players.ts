@@ -116,6 +116,32 @@ export type PossibleDuplicatePlayerGroup = {
   aliases: string[];
 };
 
+export type RankingReconciliationSample = {
+  id: string;
+  rawName: string;
+  normalizedName: string;
+  eventType: string;
+  side: string;
+  matchNumber: number | null;
+  verified: boolean;
+  candidates: DataHealthPlayerCandidate[];
+};
+
+export type RankingReconciliationSummary = {
+  totalUnlinkedEvents: number;
+  verifiedUnlinkedEvents: number;
+  unverifiedUnlinkedEvents: number;
+  safeCount: number;
+  safeVerifiedCount: number;
+  ambiguousCount: number;
+  noCandidateCount: number;
+  samples: {
+    safe: RankingReconciliationSample[];
+    ambiguous: RankingReconciliationSample[];
+    noCandidate: RankingReconciliationSample[];
+  };
+};
+
 export type RankingsDataHealthAudit = {
   totalEvents: number;
   eventsWithPlayerId: number;
@@ -126,6 +152,7 @@ export type RankingsDataHealthAudit = {
   aliasConflictsCount: number;
   possibleDuplicateGroupsCount: number;
   health: DataHealthStatus;
+  reconciliationSummary: RankingReconciliationSummary;
   unlinkedEventNames: UnlinkedEventNameGroup[];
   aliasConflicts: AliasConflict[];
   possibleDuplicateGroups: PossibleDuplicatePlayerGroup[];
@@ -166,10 +193,18 @@ type PlayerGlobalSearchEvent = {
 
 type RankingAuditEvent = {
   id: string;
+  match_id: string | null;
+  match_number: number | null;
   player_id: string | null;
   player_name_raw: string | null;
   side: string | null;
   event_type: string | null;
+};
+
+type RankingAuditMatch = {
+  id: string;
+  match_number: number | null;
+  verified: boolean | null;
 };
 
 type PlayerAliasSearchResult = {
@@ -180,6 +215,7 @@ type PlayerAliasSearchResult = {
 
 const AUDIT_EVENT_PAGE_SIZE = 1000;
 const AUDIT_PREVIEW_LIMIT = 8;
+const RECONCILIATION_SAMPLE_LIMIT = 5;
 
 function getAliasPlayer(alias: PlayerAliasSearchResult) {
   if (Array.isArray(alias.players)) {
@@ -241,6 +277,14 @@ function isKnownPlayerSide(side: string) {
   return side === "PEDRO" || side === "NETU";
 }
 
+function isCompatibleReconciliationSide(eventSide: string | null, playerSide: string) {
+  if (eventSide === "PEDRO" || eventSide === "NETU") {
+    return playerSide === eventSide;
+  }
+
+  return true;
+}
+
 function getAuditCandidates(params: {
   normalizedName: string;
   side: string;
@@ -286,7 +330,182 @@ function getAuditCandidates(params: {
 
       if (aSameSide !== bSameSide) return aSameSide - bSameSide;
       return sortPlayerSummaries(a, b);
+  });
+}
+
+function getReconciliationCandidates(params: {
+  normalizedName: string;
+  side: string | null;
+  playersById: Map<string, Player>;
+  playersByNormalizedName: Map<string, Player[]>;
+  aliasesByNormalized: Map<string, PlayerAlias[]>;
+}) {
+  const {
+    normalizedName,
+    side,
+    playersById,
+    playersByNormalizedName,
+    aliasesByNormalized,
+  } = params;
+  const reasonsByPlayerId = new Map<string, Set<string>>();
+
+  function addCandidate(playerId: string, reason: string) {
+    const player = playersById.get(playerId);
+    if (!player || !isCompatibleReconciliationSide(side, player.side)) return;
+
+    const current = reasonsByPlayerId.get(playerId) ?? new Set<string>();
+    current.add(reason);
+    reasonsByPlayerId.set(playerId, current);
+  }
+
+  (playersByNormalizedName.get(normalizedName) ?? []).forEach((player) => {
+    addCandidate(player.id, "nome oficial igual");
+  });
+
+  (aliasesByNormalized.get(normalizedName) ?? []).forEach((alias) => {
+    addCandidate(alias.player_id, "alias igual");
+  });
+
+  return Array.from(reasonsByPlayerId.entries())
+    .map(([playerId, reasons]) => {
+      const player = playersById.get(playerId);
+      if (!player) return null;
+
+      return {
+        ...playerToSummary(player),
+        reason: Array.from(reasons).join(", "),
+      };
+    })
+    .filter((player): player is DataHealthPlayerCandidate => Boolean(player))
+    .sort(sortPlayerSummaries);
+}
+
+function getMatchForAuditEvent(params: {
+  event: RankingAuditEvent;
+  matchesById: Map<string, RankingAuditMatch>;
+  matchesByNumber: Map<number, RankingAuditMatch>;
+}) {
+  const { event, matchesById, matchesByNumber } = params;
+
+  if (event.match_id) {
+    const byId = matchesById.get(event.match_id);
+    if (byId) return byId;
+  }
+
+  if (event.match_number !== null) {
+    return matchesByNumber.get(event.match_number) ?? null;
+  }
+
+  return null;
+}
+
+function buildRankingsReconciliationSummary(
+  events: RankingAuditEvent[],
+  matches: RankingAuditMatch[],
+  players: Player[],
+  aliases: PlayerAlias[]
+): RankingReconciliationSummary {
+  const playersById = new Map(players.map((player) => [player.id, player]));
+  const playersByNormalizedName = new Map<string, Player[]>();
+  const aliasesByNormalized = new Map<string, PlayerAlias[]>();
+  const matchesById = new Map(matches.map((match) => [match.id, match]));
+  const matchesByNumber = new Map(
+    matches
+      .filter((match) => match.match_number !== null)
+      .map((match) => [match.match_number as number, match])
+  );
+
+  players.forEach((player) => {
+    const normalizedName = normalizeText(player.name);
+    if (!normalizedName) return;
+    addToListMap(playersByNormalizedName, normalizedName, player);
+  });
+
+  aliases.forEach((alias) => {
+    const normalizedAlias = getNormalizedAlias(alias);
+    if (!normalizedAlias) return;
+    addToListMap(aliasesByNormalized, normalizedAlias, alias);
+  });
+
+  const summary: RankingReconciliationSummary = {
+    totalUnlinkedEvents: 0,
+    verifiedUnlinkedEvents: 0,
+    unverifiedUnlinkedEvents: 0,
+    safeCount: 0,
+    safeVerifiedCount: 0,
+    ambiguousCount: 0,
+    noCandidateCount: 0,
+    samples: {
+      safe: [],
+      ambiguous: [],
+      noCandidate: [],
+    },
+  };
+
+  events.forEach((event) => {
+    if (event.player_id) return;
+
+    const rawName = event.player_name_raw?.trim() || "Jogador sem nome";
+    const candidateKey = normalizeText(event.player_name_raw ?? "");
+    const normalizedName = candidateKey || "sem-nome";
+    const match = getMatchForAuditEvent({
+      event,
+      matchesById,
+      matchesByNumber,
     });
+    const verified = Boolean(match?.verified);
+    const candidates = candidateKey
+      ? getReconciliationCandidates({
+          normalizedName: candidateKey,
+          side: event.side,
+          playersById,
+          playersByNormalizedName,
+          aliasesByNormalized,
+        })
+      : [];
+    const sample: RankingReconciliationSample = {
+      id: event.id,
+      rawName,
+      normalizedName,
+      eventType: event.event_type || "SEM_TIPO",
+      side: event.side || "SEM_LADO",
+      matchNumber: event.match_number,
+      verified,
+      candidates,
+    };
+
+    summary.totalUnlinkedEvents += 1;
+
+    if (verified) {
+      summary.verifiedUnlinkedEvents += 1;
+    } else {
+      summary.unverifiedUnlinkedEvents += 1;
+    }
+
+    if (candidates.length === 1) {
+      summary.safeCount += 1;
+      if (verified) summary.safeVerifiedCount += 1;
+      if (summary.samples.safe.length < RECONCILIATION_SAMPLE_LIMIT) {
+        summary.samples.safe.push(sample);
+      }
+      return;
+    }
+
+    if (candidates.length > 1) {
+      summary.ambiguousCount += 1;
+      if (summary.samples.ambiguous.length < RECONCILIATION_SAMPLE_LIMIT) {
+        summary.samples.ambiguous.push(sample);
+      }
+      return;
+    }
+
+    summary.noCandidateCount += 1;
+    if (summary.samples.noCandidate.length < RECONCILIATION_SAMPLE_LIMIT) {
+      summary.samples.noCandidate.push(sample);
+    }
+  });
+
+  return summary;
 }
 
 function getHealthStatus(linkedEventsPercent: number): DataHealthStatus {
@@ -324,7 +543,7 @@ async function getAllRankingAuditEvents(): Promise<RankingAuditEvent[]> {
   while (true) {
     const { data, error } = await supabase
       .from("events")
-      .select("id, player_id, player_name_raw, side, event_type")
+      .select("id, match_id, match_number, player_id, player_name_raw, side, event_type")
       .order("match_number", { ascending: true })
       .order("seq", { ascending: true })
       .range(from, from + AUDIT_EVENT_PAGE_SIZE - 1);
@@ -340,6 +559,30 @@ async function getAllRankingAuditEvents(): Promise<RankingAuditEvent[]> {
   }
 
   return events;
+}
+
+async function getAllRankingAuditMatches(): Promise<RankingAuditMatch[]> {
+  const matches: RankingAuditMatch[] = [];
+  let from = 0;
+
+  while (true) {
+    const { data, error } = await supabase
+      .from("matches")
+      .select("id, match_number, verified")
+      .order("match_number", { ascending: true })
+      .range(from, from + AUDIT_EVENT_PAGE_SIZE - 1);
+
+    if (error) throw error;
+
+    const page = (data ?? []) as RankingAuditMatch[];
+    matches.push(...page);
+
+    if (page.length < AUDIT_EVENT_PAGE_SIZE) break;
+
+    from += AUDIT_EVENT_PAGE_SIZE;
+  }
+
+  return matches;
 }
 
 function buildUnlinkedEventNameGroups(
@@ -791,6 +1034,7 @@ export async function getRankingsDataHealthAudit(): Promise<RankingsDataHealthAu
     { data: players, error: playersError },
     { data: aliases, error: aliasesError },
     events,
+    matches,
   ] = await Promise.all([
     supabase.from("players").select("id, name, side").order("name"),
     supabase
@@ -798,6 +1042,7 @@ export async function getRankingsDataHealthAudit(): Promise<RankingsDataHealthAu
       .select("id, player_id, alias, normalized_alias")
       .order("alias"),
     getAllRankingAuditEvents(),
+    getAllRankingAuditMatches(),
   ]);
 
   if (playersError) throw playersError;
@@ -817,6 +1062,12 @@ export async function getRankingsDataHealthAudit(): Promise<RankingsDataHealthAu
     playerList,
     aliasList
   );
+  const reconciliationSummary = buildRankingsReconciliationSummary(
+    events,
+    matches,
+    playerList,
+    aliasList
+  );
   const aliasConflicts = buildAliasConflicts(playerList, aliasList);
   const possibleDuplicateGroups = buildPossibleDuplicateGroups(playerList, aliasList);
 
@@ -830,6 +1081,7 @@ export async function getRankingsDataHealthAudit(): Promise<RankingsDataHealthAu
     aliasConflictsCount: aliasConflicts.length,
     possibleDuplicateGroupsCount: possibleDuplicateGroups.length,
     health: getHealthStatus(linkedEventsPercent),
+    reconciliationSummary,
     unlinkedEventNames: unlinkedEventNames.slice(0, AUDIT_PREVIEW_LIMIT),
     aliasConflicts: aliasConflicts.slice(0, AUDIT_PREVIEW_LIMIT),
     possibleDuplicateGroups: possibleDuplicateGroups.slice(0, AUDIT_PREVIEW_LIMIT),
