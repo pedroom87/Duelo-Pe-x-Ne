@@ -9,16 +9,16 @@ export type VersionInfo = {
 };
 
 /**
- * Valores desta Sprint (Duel Legacy / 0.8.2)
+ * Valores desta Sprint (Duel Legacy / 0.8.3)
  */
-const VERSION_NUMBER = "0.8.2";
-const VERSION_CODENAME = "Edição de Jogadores";
-const VERSION_RELEASED_AT = "2026-07-03";
+const VERSION_NUMBER = "0.8.3";
+const VERSION_CODENAME = "Correção do Editar Jogador";
+const VERSION_RELEASED_AT = "2026-07-04";
 const VERSION_COMMIT = null;
 const VERSION_HIGHLIGHTS = [
-  "Edição manual de jogadores",
-  "Correção de time/lado do jogador",
-  "Melhor distinção entre jogadores com nomes iguais",
+  "Botão Editar clicável em jogadores sem eventos",
+  "Modal de edição preservado por editPlayerId",
+  "Correção sem alterações em mesclagem, exclusão ou histórico",
 ];
 
 function getCommitFromEnv() {

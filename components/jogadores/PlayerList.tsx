@@ -372,7 +372,6 @@ export default function PlayerList({ players }: Props) {
             <TeamBadge side={side} withMascot />
             <button
               type="button"
-              disabled={dim}
               onClick={() => {
                 setEditPlayerId(player.id);
                 setEditName(player.name);

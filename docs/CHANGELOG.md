@@ -1,5 +1,6 @@
 # Changelog
 
+- v0.8.3 — Correção do Botão Editar
 - v0.8.2 — Edição de Jogadores
 - v0.8.0 — Curadoria Inteligente
 - v0.7.5 — Polimento Visual
