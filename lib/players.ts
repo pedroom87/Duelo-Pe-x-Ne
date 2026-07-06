@@ -1,4 +1,10 @@
-import { normalizeText } from "./playerIdentity";
+import {
+  buildPlayerIdentityIndex,
+  normalizeText,
+  resolvePlayerIdForEvent,
+  type AliasIdentity,
+  type PlayerIdentity,
+} from "./playerIdentity";
 import { supabase } from "./supabase";
 import historicalImportData from "../public/data/historico-extraido.json";
 
@@ -194,6 +200,32 @@ export type HistoricalImportCoverageSummary = {
   };
 };
 
+export type OfficialRankingValidationStatus = "OK" | "Divergente";
+
+export type OfficialRankingValidatorRow = {
+  key: string;
+  playerId: string | null;
+  playerName: string;
+  side: string;
+  historicalGoals: number;
+  siteGoals: number;
+  difference: number;
+  status: OfficialRankingValidationStatus;
+  rawHistoricalNames: string[];
+  matchedPlayers: DataHealthPlayerSummary[];
+  isFeatured: boolean;
+};
+
+export type OfficialRankingValidatorSummary = {
+  sourceAvailable: boolean;
+  totalHistoricalGoals: number;
+  totalSiteGoals: number;
+  comparedPlayersCount: number;
+  divergentPlayersCount: number;
+  okPlayersCount: number;
+  rows: OfficialRankingValidatorRow[];
+};
+
 export type RankingsDataHealthAudit = {
   totalEvents: number;
   eventsWithPlayerId: number;
@@ -206,6 +238,7 @@ export type RankingsDataHealthAudit = {
   health: DataHealthStatus;
   reconciliationSummary: RankingReconciliationSummary;
   importCoverageSummary: HistoricalImportCoverageSummary;
+  officialRankingValidator: OfficialRankingValidatorSummary;
   unlinkedEventNames: UnlinkedEventNameGroup[];
   aliasConflicts: AliasConflict[];
   possibleDuplicateGroups: PossibleDuplicatePlayerGroup[];
@@ -299,6 +332,23 @@ const RECONCILIATION_SAMPLE_LIMIT = 5;
 const IMPORT_COVERAGE_SAMPLE_LIMIT = 8;
 const IMPORT_COVERAGE_PLAYER_SAMPLE_LIMIT = 3;
 const HISTORICAL_IMPORT = historicalImportData as HistoricalImportData;
+const OFFICIAL_RANKING_VALIDATOR_GROUPS = [
+  {
+    key: "official:luis-fabiano:PEDRO",
+    canonicalName: "Luis Fabiano / Fabiano",
+    side: "PEDRO",
+    aliases: ["Luis Fabiano", "L. Fabiano", "L Fabiano", "Fabiano"],
+  },
+  {
+    key: "official:ademilson:PEDRO",
+    canonicalName: "Ademilson",
+    side: "PEDRO",
+    aliases: ["Ademilson"],
+  },
+] as const;
+const OFFICIAL_RANKING_VALIDATOR_FEATURE_ORDER = new Map<string, number>(
+  OFFICIAL_RANKING_VALIDATOR_GROUPS.map((group, index) => [group.key, index])
+);
 
 function getAliasPlayer(alias: PlayerAliasSearchResult) {
   if (Array.isArray(alias.players)) {
@@ -812,6 +862,428 @@ function limitPlayerCoverageDifferences(
   }
 
   return limited;
+}
+
+type OfficialRankingValidatorGroup =
+  (typeof OFFICIAL_RANKING_VALIDATOR_GROUPS)[number];
+
+type OfficialRankingValidatorIdentityIndex = {
+  groupCandidatesByKey: Map<string, DataHealthPlayerSummary[]>;
+  groupKeyByPlayerId: Map<string, string>;
+};
+
+type OfficialRankingValidatorResolution = {
+  key: string;
+  playerId: string | null;
+  playerName: string;
+  side: string;
+  matchedPlayers: DataHealthPlayerSummary[];
+  isFeatured: boolean;
+};
+
+type OfficialRankingValidatorDraft = Omit<
+  OfficialRankingValidatorRow,
+  | "difference"
+  | "status"
+  | "rawHistoricalNames"
+  | "matchedPlayers"
+> & {
+  rawHistoricalNames: Set<string>;
+  matchedPlayers: Map<string, DataHealthPlayerSummary>;
+};
+
+function normalizeOfficialValidatorAlias(value: string) {
+  return normalizeText(value).replace(/[^a-z0-9]+/g, " ").trim();
+}
+
+function getOfficialValidatorNameKeys(value: string) {
+  const keys = new Set<string>();
+  const normalized = normalizeText(value);
+  const loose = normalizeOfficialValidatorAlias(value);
+
+  if (normalized) keys.add(normalized);
+  if (loose) keys.add(loose);
+
+  return keys;
+}
+
+function hasOfficialValidatorKeyMatch(
+  candidateKeys: Set<string>,
+  groupKeys: Set<string>
+) {
+  for (const key of candidateKeys) {
+    if (groupKeys.has(key)) return true;
+  }
+
+  return false;
+}
+
+function getOfficialValidatorGroupKeys(group: OfficialRankingValidatorGroup) {
+  const keys = new Set<string>();
+
+  group.aliases.forEach((alias) => {
+    getOfficialValidatorNameKeys(alias).forEach((key) => keys.add(key));
+  });
+
+  return keys;
+}
+
+function getOfficialValidatorGroupForName(params: {
+  name: string;
+  side: string | null;
+}) {
+  const candidateKeys = getOfficialValidatorNameKeys(params.name);
+
+  return (
+    OFFICIAL_RANKING_VALIDATOR_GROUPS.find(
+      (group) =>
+        group.side === params.side &&
+        hasOfficialValidatorKeyMatch(
+          candidateKeys,
+          getOfficialValidatorGroupKeys(group)
+        )
+    ) ?? null
+  );
+}
+
+function getOfficialValidatorGroupByKey(key: string) {
+  return (
+    OFFICIAL_RANKING_VALIDATOR_GROUPS.find((group) => group.key === key) ?? null
+  );
+}
+
+function buildOfficialRankingValidatorIdentityIndex(
+  players: Player[],
+  aliases: PlayerAlias[]
+): OfficialRankingValidatorIdentityIndex {
+  const playersById = new Map(players.map((player) => [player.id, player]));
+  const groupCandidatesByKey = new Map<string, DataHealthPlayerSummary[]>();
+  const groupKeyByPlayerId = new Map<string, string>();
+
+  OFFICIAL_RANKING_VALIDATOR_GROUPS.forEach((group) => {
+    const groupKeys = getOfficialValidatorGroupKeys(group);
+    const candidates = new Map<string, Player>();
+
+    players.forEach((player) => {
+      if (player.side !== group.side) return;
+
+      if (
+        hasOfficialValidatorKeyMatch(
+          getOfficialValidatorNameKeys(player.name),
+          groupKeys
+        )
+      ) {
+        candidates.set(player.id, player);
+      }
+    });
+
+    aliases.forEach((alias) => {
+      const player = playersById.get(alias.player_id);
+      if (!player || player.side !== group.side) return;
+
+      if (
+        hasOfficialValidatorKeyMatch(
+          getOfficialValidatorNameKeys(alias.normalized_alias || alias.alias),
+          groupKeys
+        )
+      ) {
+        candidates.set(player.id, player);
+      }
+    });
+
+    const summaries = uniquePlayerSummaries(
+      Array.from(candidates.values()).map(playerToSummary)
+    );
+
+    groupCandidatesByKey.set(group.key, summaries);
+    summaries.forEach((player) => {
+      groupKeyByPlayerId.set(player.id, group.key);
+    });
+  });
+
+  return {
+    groupCandidatesByKey,
+    groupKeyByPlayerId,
+  };
+}
+
+function resolveOfficialValidatorGroup(params: {
+  group: OfficialRankingValidatorGroup;
+  identityIndex: OfficialRankingValidatorIdentityIndex;
+}): OfficialRankingValidatorResolution {
+  const { group, identityIndex } = params;
+  const candidates = identityIndex.groupCandidatesByKey.get(group.key) ?? [];
+
+  return {
+    key: group.key,
+    playerId: candidates[0]?.id ?? null,
+    playerName: group.canonicalName,
+    side: group.side,
+    matchedPlayers: candidates,
+    isFeatured: true,
+  };
+}
+
+function resolveOfficialValidatorPlayer(
+  player: DataHealthPlayerSummary
+): OfficialRankingValidatorResolution {
+  return {
+    key: `player:${player.id}`,
+    playerId: player.id,
+    playerName: player.name,
+    side: player.side,
+    matchedPlayers: [player],
+    isFeatured: false,
+  };
+}
+
+function resolveOfficialValidatorName(params: {
+  name: string;
+  normalizedName: string;
+  side: string;
+}): OfficialRankingValidatorResolution {
+  const { name, normalizedName, side } = params;
+  const displayName = name.trim() || "Jogador sem nome";
+
+  return {
+    key: `name:${normalizedName}:${side}`,
+    playerId: null,
+    playerName: displayName,
+    side,
+    matchedPlayers: [],
+    isFeatured: false,
+  };
+}
+
+function resolveHistoricalOfficialValidatorIdentity(params: {
+  event: ExpectedHistoricalEvent;
+  candidateIndex: ReturnType<typeof buildCoverageCandidatesIndex>;
+  identityIndex: OfficialRankingValidatorIdentityIndex;
+}): OfficialRankingValidatorResolution {
+  const { event, candidateIndex, identityIndex } = params;
+  const group = getOfficialValidatorGroupForName({
+    name: event.playerNameRaw,
+    side: event.side,
+  });
+
+  if (group) {
+    return resolveOfficialValidatorGroup({ group, identityIndex });
+  }
+
+  const candidates = getCoverageCandidates({
+    normalizedName: event.normalizedName,
+    side: event.side,
+    ...candidateIndex,
+  });
+
+  if (candidates.length === 1) {
+    return resolveOfficialValidatorPlayer(candidates[0]);
+  }
+
+  return resolveOfficialValidatorName({
+    name: event.playerNameRaw,
+    normalizedName: event.normalizedName,
+    side: event.side,
+  });
+}
+
+function resolveDatabaseOfficialValidatorIdentity(params: {
+  event: RankingAuditEvent;
+  rankingIndex: ReturnType<typeof buildPlayerIdentityIndex>;
+  identityIndex: OfficialRankingValidatorIdentityIndex;
+}): OfficialRankingValidatorResolution {
+  const { event, rankingIndex, identityIndex } = params;
+  const eventSide = event.side || "SEM_LADO";
+  const resolvedPlayerId = resolvePlayerIdForEvent(
+    {
+      player_id: event.player_id,
+      player_name_raw: event.player_name_raw,
+      side: eventSide,
+    },
+    rankingIndex
+  );
+  const groupKey = resolvedPlayerId
+    ? identityIndex.groupKeyByPlayerId.get(resolvedPlayerId)
+    : null;
+  const group =
+    (groupKey ? getOfficialValidatorGroupByKey(groupKey) : null) ??
+    getOfficialValidatorGroupForName({
+      name: event.player_name_raw ?? "",
+      side: eventSide,
+    });
+
+  if (group) {
+    return resolveOfficialValidatorGroup({ group, identityIndex });
+  }
+
+  if (resolvedPlayerId) {
+    const player = rankingIndex.playersById.get(resolvedPlayerId);
+    if (player) {
+      return resolveOfficialValidatorPlayer(playerToSummary(player));
+    }
+  }
+
+  const rawName = event.player_name_raw?.trim() || "Jogador sem nome";
+
+  return resolveOfficialValidatorName({
+    name: rawName,
+    normalizedName: normalizeText(rawName) || "sem-nome",
+    side: eventSide,
+  });
+}
+
+function getOfficialValidatorDraft(
+  drafts: Map<string, OfficialRankingValidatorDraft>,
+  resolution: OfficialRankingValidatorResolution
+) {
+  const current = drafts.get(resolution.key);
+  if (current) return current;
+
+  const draft: OfficialRankingValidatorDraft = {
+    key: resolution.key,
+    playerId: resolution.playerId,
+    playerName: resolution.playerName,
+    side: resolution.side,
+    historicalGoals: 0,
+    siteGoals: 0,
+    isFeatured: resolution.isFeatured,
+    rawHistoricalNames: new Set<string>(),
+    matchedPlayers: new Map<string, DataHealthPlayerSummary>(),
+  };
+
+  resolution.matchedPlayers.forEach((player) => {
+    draft.matchedPlayers.set(player.id, player);
+  });
+
+  drafts.set(resolution.key, draft);
+
+  return draft;
+}
+
+function mergeOfficialValidatorResolution(
+  draft: OfficialRankingValidatorDraft,
+  resolution: OfficialRankingValidatorResolution
+) {
+  if (!draft.playerId && resolution.playerId) {
+    draft.playerId = resolution.playerId;
+  }
+
+  if (resolution.isFeatured) {
+    draft.isFeatured = true;
+  }
+
+  resolution.matchedPlayers.forEach((player) => {
+    draft.matchedPlayers.set(player.id, player);
+  });
+}
+
+function getOfficialValidatorFeatureOrder(row: OfficialRankingValidatorRow) {
+  return OFFICIAL_RANKING_VALIDATOR_FEATURE_ORDER.get(row.key) ?? 999;
+}
+
+function buildOfficialRankingValidatorSummary(params: {
+  events: RankingAuditEvent[];
+  players: Player[];
+  aliases: PlayerAlias[];
+}): OfficialRankingValidatorSummary {
+  const { events, players, aliases } = params;
+  const expectedGoalEvents = getExpectedHistoricalEvents().filter(
+    (event) => event.eventType === "GOL"
+  );
+  const candidateIndex = buildCoverageCandidatesIndex(players, aliases);
+  const identityIndex = buildOfficialRankingValidatorIdentityIndex(players, aliases);
+  const rankingAliases: AliasIdentity[] = aliases.map((alias) => ({
+    player_id: alias.player_id,
+    normalized_alias: alias.normalized_alias || alias.alias,
+  }));
+  const rankingIndex = buildPlayerIdentityIndex(players as PlayerIdentity[], rankingAliases);
+  const drafts = new Map<string, OfficialRankingValidatorDraft>();
+
+  OFFICIAL_RANKING_VALIDATOR_GROUPS.forEach((group) => {
+    const resolution = resolveOfficialValidatorGroup({ group, identityIndex });
+    getOfficialValidatorDraft(drafts, resolution);
+  });
+
+  expectedGoalEvents.forEach((event) => {
+    const resolution = resolveHistoricalOfficialValidatorIdentity({
+      event,
+      candidateIndex,
+      identityIndex,
+    });
+    const draft = getOfficialValidatorDraft(drafts, resolution);
+
+    mergeOfficialValidatorResolution(draft, resolution);
+    draft.historicalGoals += 1;
+    draft.rawHistoricalNames.add(event.playerNameRaw);
+  });
+
+  events.forEach((event) => {
+    if (event.event_type !== "GOL") return;
+
+    const resolution = resolveDatabaseOfficialValidatorIdentity({
+      event,
+      rankingIndex,
+      identityIndex,
+    });
+    const draft = getOfficialValidatorDraft(drafts, resolution);
+
+    mergeOfficialValidatorResolution(draft, resolution);
+    draft.siteGoals += 1;
+  });
+
+  const rows = Array.from(drafts.values())
+    .map((draft) => {
+      const difference = draft.historicalGoals - draft.siteGoals;
+
+      return {
+        key: draft.key,
+        playerId: draft.playerId,
+        playerName: draft.playerName,
+        side: draft.side,
+        historicalGoals: draft.historicalGoals,
+        siteGoals: draft.siteGoals,
+        difference,
+        status: difference === 0 ? "OK" : "Divergente",
+        rawHistoricalNames: Array.from(draft.rawHistoricalNames).sort((a, b) =>
+          a.localeCompare(b)
+        ),
+        matchedPlayers: uniquePlayerSummaries(
+          Array.from(draft.matchedPlayers.values())
+        ),
+        isFeatured: draft.isFeatured,
+      } satisfies OfficialRankingValidatorRow;
+    })
+    .sort((a, b) => {
+      if (a.isFeatured !== b.isFeatured) return a.isFeatured ? -1 : 1;
+
+      if (a.isFeatured && b.isFeatured) {
+        return getOfficialValidatorFeatureOrder(a) - getOfficialValidatorFeatureOrder(b);
+      }
+
+      if (a.status !== b.status) return a.status === "Divergente" ? -1 : 1;
+
+      const absoluteDiff = Math.abs(b.difference) - Math.abs(a.difference);
+      if (absoluteDiff !== 0) return absoluteDiff;
+
+      if (b.historicalGoals !== a.historicalGoals) {
+        return b.historicalGoals - a.historicalGoals;
+      }
+
+      return a.playerName.localeCompare(b.playerName);
+    });
+  const divergentPlayersCount = rows.filter(
+    (row) => row.status === "Divergente"
+  ).length;
+
+  return {
+    sourceAvailable: HISTORICAL_IMPORT.matches.length > 0,
+    totalHistoricalGoals: expectedGoalEvents.length,
+    totalSiteGoals: events.filter((event) => event.event_type === "GOL").length,
+    comparedPlayersCount: rows.length,
+    divergentPlayersCount,
+    okPlayersCount: rows.length - divergentPlayersCount,
+    rows,
+  };
 }
 
 function buildHistoricalImportCoverageSummary(params: {
@@ -1559,6 +2031,11 @@ export async function getRankingsDataHealthAudit(): Promise<RankingsDataHealthAu
     players: playerList,
     aliases: aliasList,
   });
+  const officialRankingValidator = buildOfficialRankingValidatorSummary({
+    events,
+    players: playerList,
+    aliases: aliasList,
+  });
   const aliasConflicts = buildAliasConflicts(playerList, aliasList);
   const possibleDuplicateGroups = buildPossibleDuplicateGroups(playerList, aliasList);
 
@@ -1574,10 +2051,12 @@ export async function getRankingsDataHealthAudit(): Promise<RankingsDataHealthAu
     health: getHealthStatus(linkedEventsPercent),
     reconciliationSummary,
     importCoverageSummary,
+    officialRankingValidator,
     unlinkedEventNames: unlinkedEventNames.slice(0, AUDIT_PREVIEW_LIMIT),
     aliasConflicts: aliasConflicts.slice(0, AUDIT_PREVIEW_LIMIT),
     possibleDuplicateGroups: possibleDuplicateGroups.slice(0, AUDIT_PREVIEW_LIMIT),
     hasRelevantIssues:
+      officialRankingValidator.divergentPlayersCount > 0 ||
       importCoverageSummary.missingExpectedEvents > 0 ||
       eventsWithoutPlayerId > 0 ||
       aliasConflicts.length > 0 ||

@@ -1,5 +1,7 @@
 # Changelog
 
+- v0.9.2 — Validador dos Rankings
+
 - v0.9.1 — Cobertura da Importação
 - v0.9.0 — Auditoria de Reconciliação
 - v0.8.9 — Alias Órfão

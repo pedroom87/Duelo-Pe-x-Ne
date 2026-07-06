@@ -39,6 +39,9 @@ type ReconciliationSummary = RankingsDataHealthAudit["reconciliationSummary"];
 type ReconciliationSample = ReconciliationSummary["samples"]["safe"][number];
 type ReconciliationCandidate = ReconciliationSample["candidates"][number];
 type ImportCoverageSummary = RankingsDataHealthAudit["importCoverageSummary"];
+type OfficialRankingValidatorSummary =
+  RankingsDataHealthAudit["officialRankingValidator"];
+type OfficialRankingValidatorRow = OfficialRankingValidatorSummary["rows"][number];
 type ImportCoverageEventSample =
   ImportCoverageSummary["samples"]["missingEvents"][number];
 type ImportCoveragePlayerDifference =
@@ -94,6 +97,11 @@ function playerHasStrongDuplicateSignal(params: {
 
 function formatNumber(value: number) {
   return value.toLocaleString("pt-BR");
+}
+
+function formatSignedNumber(value: number) {
+  if (value > 0) return `+${formatNumber(value)}`;
+  return formatNumber(value);
 }
 
 function formatPercent(value: number) {
@@ -647,6 +655,157 @@ function ImportCoverageSummaryBlock({
           </details>
         </div>
       )}
+    </div>
+  );
+}
+
+function getOfficialValidatorStatusClasses(
+  status: OfficialRankingValidatorRow["status"]
+) {
+  return status === "OK"
+    ? "border-emerald-700 bg-emerald-950/35 text-emerald-200"
+    : "border-red-700 bg-red-950/35 text-red-200";
+}
+
+function getOfficialValidatorDifferenceClasses(difference: number) {
+  if (difference === 0) return "text-emerald-200";
+  return "text-red-200";
+}
+
+function OfficialRankingValidatorBlock({
+  summary,
+}: {
+  summary: OfficialRankingValidatorSummary;
+}) {
+  const cards = [
+    {
+      label: "Gols no histórico",
+      value: formatNumber(summary.totalHistoricalGoals),
+    },
+    {
+      label: "Gols no site/banco",
+      value: formatNumber(summary.totalSiteGoals),
+    },
+    {
+      label: "Jogadores comparados",
+      value: formatNumber(summary.comparedPlayersCount),
+    },
+    {
+      label: "Divergentes",
+      value: formatNumber(summary.divergentPlayersCount),
+    },
+  ];
+
+  return (
+    <div className="mt-5 rounded-xl border border-cyan-800 bg-cyan-950/20 p-4">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+        <div>
+          <h3 className="text-lg font-black text-zinc-100">
+            Validador oficial dos rankings
+          </h3>
+          <p className="mt-2 text-sm text-cyan-100">
+            Compara gols por jogador entre a planilha histórica extraída e o ranking atual do site.
+          </p>
+        </div>
+
+        <p className="rounded-lg border border-cyan-700 bg-cyan-950/40 px-3 py-2 text-xs font-bold text-cyan-100">
+          Correções serão liberadas após validação desta auditoria.
+        </p>
+      </div>
+
+      <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+        {cards.map((card) => (
+          <AuditMetricCard key={card.label} label={card.label} value={card.value} />
+        ))}
+      </div>
+
+      {!summary.sourceAvailable ? (
+        <p className="mt-4 rounded-xl border border-yellow-800 bg-yellow-950/25 px-4 py-3 text-sm font-semibold text-yellow-200">
+          Histórico extraído não encontrado para esta auditoria.
+        </p>
+      ) : null}
+
+      <div className="mt-4 overflow-x-auto rounded-xl border border-zinc-800">
+        <table className="w-full min-w-[760px] border-collapse text-left text-sm">
+          <thead className="bg-zinc-950 text-xs uppercase tracking-[0.2em] text-zinc-500">
+            <tr>
+              <th className="px-3 py-3">Jogador</th>
+              <th className="px-3 py-3 text-right">Planilha/histórico</th>
+              <th className="px-3 py-3 text-right">Site/banco</th>
+              <th className="px-3 py-3 text-right">Diferença</th>
+              <th className="px-3 py-3">Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            {summary.rows.map((row) => (
+              <tr
+                key={row.key}
+                className={`border-t border-zinc-800 ${
+                  row.isFeatured ? "bg-cyan-950/25" : "bg-zinc-950/50"
+                }`}
+              >
+                <td className="px-3 py-3 align-top">
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="break-words font-bold text-zinc-100">
+                        {row.playerName}
+                      </p>
+                      <span className="rounded-full border border-zinc-700 px-2 py-1 text-xs text-zinc-300">
+                        {formatAuditSide(row.side)}
+                      </span>
+                      {row.isFeatured ? (
+                        <span className="rounded-full border border-cyan-700 bg-cyan-950/50 px-2 py-1 text-xs font-bold text-cyan-100">
+                          Destaque
+                        </span>
+                      ) : null}
+                    </div>
+
+                    {row.rawHistoricalNames.length > 0 ? (
+                      <p className="mt-1 break-words text-xs text-zinc-500">
+                        Histórico: {row.rawHistoricalNames.join(", ")}
+                      </p>
+                    ) : null}
+
+                    {row.matchedPlayers.length > 0 ? (
+                      <p className="mt-1 break-words text-xs text-zinc-500">
+                        Cadastro:{" "}
+                        {row.matchedPlayers
+                          .map(
+                            (player) =>
+                              `${player.name} (${formatAuditSide(player.side)})`
+                          )
+                          .join(", ")}
+                      </p>
+                    ) : null}
+                  </div>
+                </td>
+                <td className="px-3 py-3 text-right align-top font-bold text-zinc-100">
+                  {formatNumber(row.historicalGoals)}
+                </td>
+                <td className="px-3 py-3 text-right align-top font-bold text-zinc-100">
+                  {formatNumber(row.siteGoals)}
+                </td>
+                <td
+                  className={`px-3 py-3 text-right align-top font-black ${getOfficialValidatorDifferenceClasses(
+                    row.difference
+                  )}`}
+                >
+                  {formatSignedNumber(row.difference)}
+                </td>
+                <td className="px-3 py-3 align-top">
+                  <span
+                    className={`inline-flex rounded-full border px-2 py-1 text-xs font-bold ${getOfficialValidatorStatusClasses(
+                      row.status
+                    )}`}
+                  >
+                    {row.status}
+                  </span>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
@@ -1397,6 +1556,7 @@ export default function PlayerList({
 
   const reconciliation = audit.reconciliationSummary;
   const importCoverage = audit.importCoverageSummary;
+  const officialRankingValidator = audit.officialRankingValidator;
   const auditCards = [
     {
       label: "Total de eventos",
@@ -1776,6 +1936,7 @@ export default function PlayerList({
           ))}
         </div>
 
+        <OfficialRankingValidatorBlock summary={officialRankingValidator} />
         <ReconciliationSummaryBlock summary={reconciliation} />
         <ImportCoverageSummaryBlock summary={importCoverage} />
 

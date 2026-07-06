@@ -9,16 +9,16 @@ export type VersionInfo = {
 };
 
 /**
- * Valores desta Sprint (Duel Legacy / 0.9.1)
+ * Valores desta Sprint (Duel Legacy / 0.9.2)
  */
-const VERSION_NUMBER = "0.9.1";
-const VERSION_CODENAME = "Cobertura da Importação";
+const VERSION_NUMBER = "0.9.2";
+const VERSION_CODENAME = "Validador dos Rankings";
 const VERSION_RELEASED_AT = "2026-07-04";
 const VERSION_COMMIT = null;
 const VERSION_HIGHLIGHTS = [
-  "Auditoria de cobertura entre planilha histórica e banco",
-  "Detecção de eventos da planilha ausentes no site",
-  "Diagnóstico de divergências que afetam rankings",
+  "Comparação entre planilha histórica e rankings do site",
+  "Detecção de divergências por jogador",
+  "Base para validação oficial dos rankings",
 ];
 
 function getCommitFromEnv() {
