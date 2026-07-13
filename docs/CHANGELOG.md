@@ -1,5 +1,7 @@
 # Changelog
 
+- v0.9.5 — Divergências de Identidade
+
 - v0.9.4 — Resolução Manual da Curadoria
 
 - v0.9.3 — Curadoria de Identidades

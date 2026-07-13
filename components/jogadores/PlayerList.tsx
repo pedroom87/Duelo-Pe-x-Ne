@@ -22,7 +22,10 @@ import {
   mergePlayers,
   reassignAliasOwner,
 } from "@/lib/playerAliases";
-import { linkUnresolvedEventsToPlayer } from "@/lib/events";
+import {
+  linkUnresolvedEventsToPlayer,
+  reassignEventsToPlayer,
+} from "@/lib/events";
 import { normalizeText } from "@/lib/playerIdentity";
 import { formatSupabaseError } from "@/lib/supabaseErrors";
 import { TeamBadge } from "@/components/teams/TeamBadge";
@@ -53,6 +56,46 @@ type ImportCoverageMatchDifference =
 
 const GLOBAL_SEARCH_SECTION_ID = "busca-global-jogadores";
 const CURATION_SECTION_ID = "curadoria-jogadores";
+
+type IdentityResolutionPreviewAlias = {
+  alias: string;
+  normalizedAlias: string;
+};
+
+type IdentityResolutionPreviewEvent = {
+  id: string;
+  matchNumber: number | null;
+  seq: number | null;
+  playerNameRaw: string;
+  eventType: string;
+  sourcePlayerLabel: string;
+  targetPlayerLabel: string;
+};
+
+type IdentityResolutionPreview = {
+  rowKey: string;
+  rowPlayerName: string;
+  targetPlayerId: string;
+  targetPlayerName: string;
+  targetPlayerSide: string;
+  aliasesToCreate: IdentityResolutionPreviewAlias[];
+  eventsToMove: IdentityResolutionPreviewEvent[];
+  sourcePlayers: string[];
+  affectedRankings: string[];
+  historicalGoals: number;
+  siteGoals: number;
+  difference: number;
+};
+
+type IdentityResolutionHistoryItem = {
+  id: string;
+  rowPlayerName: string;
+  targetPlayerName: string;
+  aliasesCreated: number;
+  eventsMoved: number;
+  affectedRankings: string[];
+  createdAt: string;
+};
 
 function buildAliasState(players: PlayerWithAliases[]) {
   return Object.fromEntries(
@@ -726,15 +769,10 @@ type OfficialRankingValidatorBlockProps = {
   selectedTargetByRowKey: Record<string, string>;
   actionLoadingKey: string | null;
   onSelectTarget: (rowKey: string, playerId: string) => void;
-  onAddOfficialAliases: (
-    row: OfficialRankingValidatorRow,
-    targetPlayerId: string,
-    aliases: OfficialRankingValidatorRow["aliases"]
-  ) => Promise<void>;
-  onLinkConfirmedEvents: (
+  onPrepareResolution: (
     row: OfficialRankingValidatorRow,
     targetPlayerId: string
-  ) => Promise<void>;
+  ) => void;
 };
 
 function OfficialRankingValidatorEventList({
@@ -842,8 +880,7 @@ function OfficialRankingValidatorBlock({
   selectedTargetByRowKey,
   actionLoadingKey,
   onSelectTarget,
-  onAddOfficialAliases,
-  onLinkConfirmedEvents,
+  onPrepareResolution,
 }: OfficialRankingValidatorBlockProps) {
   const cards = [
     {
@@ -905,19 +942,7 @@ function OfficialRankingValidatorBlock({
           const selectedTarget = sidePlayers.find(
             (player) => player.id === selectedTargetId
           );
-          const registeredAliasKeys = new Set(
-            row.aliases
-              .filter((alias) => alias.source === "Cadastro")
-              .map((alias) => alias.normalizedAlias)
-          );
-          const aliasesToAdd = row.aliases.filter(
-            (alias) =>
-              alias.source === "Grupo oficial" &&
-              !registeredAliasKeys.has(alias.normalizedAlias)
-          );
-          const unlinkedEventNames = getOfficialValidatorUnlinkedEventNames(row);
-          const aliasLoadingKey = `aliases:${row.key}`;
-          const eventsLoadingKey = `events:${row.key}`;
+          const hasAvailableTarget = Boolean(selectedTarget);
 
           return (
             <details
@@ -1054,50 +1079,26 @@ function OfficialRankingValidatorBlock({
                       type="button"
                       onClick={() =>
                         selectedTarget
-                          ? onAddOfficialAliases(
-                              row,
-                              selectedTarget.id,
-                              aliasesToAdd
-                            )
+                          ? onPrepareResolution(row, selectedTarget.id)
                           : undefined
                       }
                       disabled={
-                        !selectedTarget ||
-                        aliasesToAdd.length === 0 ||
+                        row.status !== "Divergente" ||
+                        !hasAvailableTarget ||
                         actionLoadingKey !== null
                       }
                       className="w-full rounded-lg bg-cyan-700 px-4 py-3 text-sm font-bold text-white transition hover:bg-cyan-600 disabled:opacity-50"
                     >
-                      {actionLoadingKey === aliasLoadingKey
-                        ? "Adicionando..."
-                        : `Adicionar alias (${formatNumber(aliasesToAdd.length)})`}
+                      {actionLoadingKey === `resolve:${row.key}`
+                        ? "Aplicando..."
+                        : "Resolver divergência"}
                     </button>
 
-                    <button
-                      type="button"
-                      onClick={() =>
-                        selectedTarget
-                          ? onLinkConfirmedEvents(row, selectedTarget.id)
-                          : undefined
-                      }
-                      disabled={
-                        !selectedTarget ||
-                        unlinkedEventNames.length === 0 ||
-                        actionLoadingKey !== null
-                      }
-                      className="w-full rounded-lg border border-cyan-700 bg-zinc-950 px-4 py-3 text-sm font-bold text-cyan-100 transition hover:bg-cyan-950/40 disabled:opacity-50"
-                    >
-                      {actionLoadingKey === eventsLoadingKey
-                        ? "Reatribuindo..."
-                        : `Reatribuir eventos (${formatNumber(
-                            unlinkedEventNames.length
-                          )})`}
-                    </button>
                   </div>
 
-                  {aliasesToAdd.length === 0 && unlinkedEventNames.length === 0 ? (
+                  {row.status !== "Divergente" ? (
                     <p className="mt-3 rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-2 text-xs text-zinc-400">
-                      Nenhuma ação manual disponível para este item.
+                      Item sem divergência ativa.
                     </p>
                   ) : null}
                 </div>
@@ -1324,6 +1325,13 @@ export default function PlayerList({
   >({});
   const [validatorActionLoadingKey, setValidatorActionLoadingKey] =
     useState<string | null>(null);
+  const [identityResolutionPreview, setIdentityResolutionPreview] =
+    useState<IdentityResolutionPreview | null>(null);
+  const [identityResolutionConfirmed, setIdentityResolutionConfirmed] =
+    useState(false);
+  const [identityResolutionHistory, setIdentityResolutionHistory] = useState<
+    IdentityResolutionHistoryItem[]
+  >([]);
 
   useEffect(() => {
     let active = true;
@@ -1685,6 +1693,171 @@ export default function PlayerList({
       const message = formatSupabaseError(
         error,
         "Erro ao reatribuir eventos confirmados."
+      );
+      setFeedback(message);
+    } finally {
+      setValidatorActionLoadingKey(null);
+    }
+  }
+
+  function buildIdentityResolutionPreview(
+    row: OfficialRankingValidatorRow,
+    targetPlayerId: string
+  ): IdentityResolutionPreview | null {
+    const target = playerList.find((player) => player.id === targetPlayerId);
+    if (!target) return null;
+
+    const playersById = new Map(playerList.map((player) => [player.id, player]));
+    const aliasesByNormalized = new Map<string, string>();
+    const targetAliasKeys = new Set<string>();
+    const targetNameKey = normalizeText(target.name);
+
+    if (targetNameKey) targetAliasKeys.add(targetNameKey);
+
+    playerList.forEach((player) => {
+      const playerAliases = aliasesByPlayerId[player.id] ?? [];
+
+      playerAliases.forEach((alias) => {
+        const normalizedAlias = normalizeText(alias.normalized_alias || alias.alias);
+        if (!normalizedAlias) return;
+
+        aliasesByNormalized.set(normalizedAlias, player.id);
+        if (player.id === target.id) targetAliasKeys.add(normalizedAlias);
+      });
+    });
+
+    const aliasCandidates = [
+      ...row.rawHistoricalNames,
+      ...row.aliases
+        .filter((alias) => alias.source === "Grupo oficial")
+        .map((alias) => alias.alias),
+    ];
+    const aliasesToCreateByKey = new Map<string, IdentityResolutionPreviewAlias>();
+
+    aliasCandidates.forEach((alias) => {
+      const aliasName = alias.trim();
+      const normalizedAlias = normalizeText(aliasName);
+      if (!aliasName || !normalizedAlias) return;
+      if (targetAliasKeys.has(normalizedAlias)) return;
+
+      const currentOwnerId = aliasesByNormalized.get(normalizedAlias);
+      if (currentOwnerId && currentOwnerId !== target.id) return;
+
+      aliasesToCreateByKey.set(normalizedAlias, {
+        alias: aliasName,
+        normalizedAlias,
+      });
+    });
+
+    const eventsToMove = row.databaseEvents
+      .filter((event) => event.playerId !== target.id)
+      .map((event) => {
+        const sourcePlayer = event.playerId
+          ? playersById.get(event.playerId)
+          : null;
+        const sourcePlayerLabel = sourcePlayer
+          ? `${sourcePlayer.name} (${formatAuditSide(sourcePlayer.side)})`
+          : event.playerId
+            ? `Jogador ID ${event.playerId.slice(0, 6)}`
+            : "Sem player_id";
+
+        return {
+          id: event.id,
+          matchNumber: event.matchNumber,
+          seq: event.seq,
+          playerNameRaw: event.playerNameRaw,
+          eventType: event.eventType,
+          sourcePlayerLabel,
+          targetPlayerLabel: `${target.name} (${formatAuditSide(target.side)})`,
+        };
+      });
+
+    const affectedRankings = Array.from(
+      new Set([
+        ...eventsToMove.map((event) => formatEventType(event.eventType)),
+        ...(aliasesToCreateByKey.size > 0 ? ["Gols"] : []),
+        "Validador Oficial",
+      ])
+    );
+
+    return {
+      rowKey: row.key,
+      rowPlayerName: row.playerName,
+      targetPlayerId: target.id,
+      targetPlayerName: target.name,
+      targetPlayerSide: target.side,
+      aliasesToCreate: Array.from(aliasesToCreateByKey.values()).sort((a, b) =>
+        a.alias.localeCompare(b.alias)
+      ),
+      eventsToMove,
+      sourcePlayers: Array.from(
+        new Set(eventsToMove.map((event) => event.sourcePlayerLabel))
+      ),
+      affectedRankings,
+      historicalGoals: row.historicalGoals,
+      siteGoals: row.siteGoals,
+      difference: row.difference,
+    };
+  }
+
+  function handlePrepareIdentityResolution(
+    row: OfficialRankingValidatorRow,
+    targetPlayerId: string
+  ) {
+    const preview = buildIdentityResolutionPreview(row, targetPlayerId);
+
+    if (!preview) {
+      setFeedback("Selecione um destino valido para resolver a divergencia.");
+      return;
+    }
+
+    setIdentityResolutionPreview(preview);
+    setIdentityResolutionConfirmed(false);
+    setFeedback(null);
+  }
+
+  async function applyIdentityResolution() {
+    if (!identityResolutionPreview || !identityResolutionConfirmed) return;
+
+    const preview = identityResolutionPreview;
+    const loadingKey = `resolve:${preview.rowKey}`;
+
+    try {
+      setValidatorActionLoadingKey(loadingKey);
+
+      for (const alias of preview.aliasesToCreate) {
+        await addAlias(preview.targetPlayerId, alias.alias);
+      }
+
+      if (preview.eventsToMove.length > 0) {
+        await reassignEventsToPlayer({
+          eventIds: preview.eventsToMove.map((event) => event.id),
+          targetPlayerId: preview.targetPlayerId,
+        });
+      }
+
+      await recarregarJogadores();
+
+      const historyItem: IdentityResolutionHistoryItem = {
+        id: `${Date.now()}:${preview.rowKey}`,
+        rowPlayerName: preview.rowPlayerName,
+        targetPlayerName: preview.targetPlayerName,
+        aliasesCreated: preview.aliasesToCreate.length,
+        eventsMoved: preview.eventsToMove.length,
+        affectedRankings: preview.affectedRankings,
+        createdAt: new Date().toLocaleString("pt-BR"),
+      };
+
+      setIdentityResolutionHistory((current) => [historyItem, ...current].slice(0, 8));
+      setIdentityResolutionPreview(null);
+      setIdentityResolutionConfirmed(false);
+      setFeedback(
+        `Divergencia resolvida para ${preview.targetPlayerName}. Rankings e Validador Oficial recalculados.`
+      );
+    } catch (error: unknown) {
+      const message = formatSupabaseError(
+        error,
+        "Erro ao resolver divergencia de identidade."
       );
       setFeedback(message);
     } finally {
@@ -2375,9 +2548,34 @@ export default function PlayerList({
               [rowKey]: playerId,
             }))
           }
-          onAddOfficialAliases={handleAddOfficialAliases}
-          onLinkConfirmedEvents={handleLinkConfirmedEvents}
+          onPrepareResolution={handlePrepareIdentityResolution}
         />
+        {identityResolutionHistory.length > 0 ? (
+          <div className="mt-4 rounded-xl border border-zinc-800 bg-zinc-950 p-4">
+            <h3 className="text-sm font-black text-zinc-100">
+              Histórico desta sessão
+            </h3>
+            <div className="mt-3 space-y-2">
+              {identityResolutionHistory.map((item) => (
+                <div
+                  key={item.id}
+                  className="rounded-lg border border-zinc-800 bg-zinc-900 px-3 py-2 text-xs text-zinc-300"
+                >
+                  <p className="font-bold text-zinc-100">
+                    {item.rowPlayerName} → {item.targetPlayerName}
+                  </p>
+                  <p className="mt-1 text-zinc-500">
+                    {item.createdAt} · {formatNumber(item.aliasesCreated)} alias(es) ·{" "}
+                    {formatNumber(item.eventsMoved)} evento(s)
+                  </p>
+                  <p className="mt-1 text-zinc-500">
+                    Rankings: {item.affectedRankings.join(", ")}
+                  </p>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : null}
         <ReconciliationSummaryBlock summary={reconciliation} />
         <ImportCoverageSummaryBlock summary={importCoverage} />
 
@@ -2748,6 +2946,172 @@ export default function PlayerList({
         <p className="rounded-xl border border-zinc-800 bg-zinc-900 px-4 py-3 text-sm text-zinc-300">
           {feedback}
         </p>
+      ) : null}
+
+      {identityResolutionPreview ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
+          <div className="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-2xl border border-zinc-800 bg-zinc-950 p-5 text-white shadow-2xl">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <h2 className="text-2xl font-black">Resolver divergência</h2>
+                <p className="mt-2 text-sm text-zinc-400">
+                  {identityResolutionPreview.rowPlayerName}
+                </p>
+              </div>
+              <span className="rounded-full border border-cyan-700 bg-cyan-950/40 px-3 py-2 text-xs font-bold text-cyan-100">
+                Pré-visualização
+              </span>
+            </div>
+
+            <div className="mt-5 grid gap-3 md:grid-cols-3">
+              <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-3">
+                <p className="text-xs font-bold uppercase tracking-[0.2em] text-zinc-500">
+                  Origem
+                </p>
+                <p className="mt-2 text-sm font-bold text-zinc-100">
+                  {identityResolutionPreview.sourcePlayers.length > 0
+                    ? identityResolutionPreview.sourcePlayers.join(", ")
+                    : "Sem eventos a mover"}
+                </p>
+              </div>
+
+              <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-3">
+                <p className="text-xs font-bold uppercase tracking-[0.2em] text-zinc-500">
+                  Destino
+                </p>
+                <p className="mt-2 text-sm font-bold text-zinc-100">
+                  {identityResolutionPreview.targetPlayerName} (
+                  {formatAuditSide(identityResolutionPreview.targetPlayerSide)})
+                </p>
+              </div>
+
+              <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-3">
+                <p className="text-xs font-bold uppercase tracking-[0.2em] text-zinc-500">
+                  Diferença
+                </p>
+                <p className="mt-2 text-sm font-bold text-zinc-100">
+                  {formatNumber(identityResolutionPreview.historicalGoals)} vs{" "}
+                  {formatNumber(identityResolutionPreview.siteGoals)} (
+                  {formatSignedNumber(identityResolutionPreview.difference)})
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-4 grid gap-3 lg:grid-cols-2">
+              <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-3">
+                <p className="text-sm font-black text-zinc-100">
+                  Alias que será criado
+                </p>
+                {identityResolutionPreview.aliasesToCreate.length === 0 ? (
+                  <p className="mt-3 text-sm text-zinc-500">Nenhum alias novo.</p>
+                ) : (
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {identityResolutionPreview.aliasesToCreate.map((alias) => (
+                      <span
+                        key={alias.normalizedAlias}
+                        className="rounded-full border border-cyan-700 bg-cyan-950/30 px-3 py-1 text-xs font-bold text-cyan-100"
+                      >
+                        {alias.alias}
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-3">
+                <p className="text-sm font-black text-zinc-100">
+                  Rankings afetados
+                </p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {identityResolutionPreview.affectedRankings.map((ranking) => (
+                    <span
+                      key={ranking}
+                      className="rounded-full border border-zinc-700 bg-zinc-950 px-3 py-1 text-xs text-zinc-300"
+                    >
+                      {ranking}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-4 rounded-xl border border-zinc-800 bg-zinc-900 p-3">
+              <p className="text-sm font-black text-zinc-100">
+                Eventos que serão movidos
+              </p>
+              {identityResolutionPreview.eventsToMove.length === 0 ? (
+                <p className="mt-3 text-sm text-zinc-500">Nenhum evento será movido.</p>
+              ) : (
+                <div className="mt-3 max-h-64 space-y-2 overflow-y-auto pr-1">
+                  {identityResolutionPreview.eventsToMove.map((event) => (
+                    <div
+                      key={event.id}
+                      className="rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-2 text-xs text-zinc-300"
+                    >
+                      <div className="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between">
+                        <div>
+                          <p className="font-bold text-zinc-100">
+                            {event.playerNameRaw}
+                          </p>
+                          <p className="mt-1 text-zinc-500">
+                            {formatMatchNumber(event.matchNumber)} · Seq{" "}
+                            {event.seq ?? "-"} · {formatEventType(event.eventType)}
+                          </p>
+                        </div>
+                        <p className="text-zinc-500">
+                          {event.sourcePlayerLabel} → {event.targetPlayerLabel}
+                        </p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <label className="mt-5 flex cursor-pointer items-start gap-3 rounded-xl border border-yellow-800 bg-yellow-950/25 p-3 text-sm text-yellow-100">
+              <input
+                type="checkbox"
+                checked={identityResolutionConfirmed}
+                onChange={(event) =>
+                  setIdentityResolutionConfirmed(event.target.checked)
+                }
+                className="mt-1 h-4 w-4 accent-yellow-500"
+              />
+              Confirmo explicitamente esta resolução manual.
+            </label>
+
+            <div className="mt-5 flex flex-col gap-2 sm:flex-row">
+              <button
+                type="button"
+                onClick={() => {
+                  setIdentityResolutionPreview(null);
+                  setIdentityResolutionConfirmed(false);
+                }}
+                disabled={validatorActionLoadingKey !== null}
+                className="flex-1 rounded-lg border border-zinc-700 bg-zinc-900 px-4 py-3 font-bold text-zinc-200 transition hover:bg-zinc-800 disabled:opacity-50"
+              >
+                Cancelar
+              </button>
+
+              <button
+                type="button"
+                onClick={applyIdentityResolution}
+                disabled={
+                  !identityResolutionConfirmed ||
+                  validatorActionLoadingKey !== null ||
+                  (identityResolutionPreview.aliasesToCreate.length === 0 &&
+                    identityResolutionPreview.eventsToMove.length === 0)
+                }
+                className="flex-1 rounded-lg bg-cyan-700 px-4 py-3 font-bold text-white transition hover:bg-cyan-600 disabled:opacity-50"
+              >
+                {validatorActionLoadingKey ===
+                `resolve:${identityResolutionPreview.rowKey}`
+                  ? "Aplicando..."
+                  : "Aplicar"}
+              </button>
+            </div>
+          </div>
+        </div>
       ) : null}
 
       {deletionPreview ? (

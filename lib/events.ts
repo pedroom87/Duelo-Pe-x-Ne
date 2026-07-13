@@ -24,6 +24,12 @@ export type LinkUnresolvedEventsResult = {
   side: string;
 };
 
+export type ReassignEventsToPlayerResult = {
+  updatedEvents: number;
+  eventIds: string[];
+  targetPlayerId: string;
+};
+
 type LinkableEventRecord = {
   id: string;
   player_id: string | null;
@@ -36,6 +42,11 @@ type LinkTargetPlayer = {
   side: string;
 };
 
+type ReassignEventRecord = {
+  id: string;
+  side: string | null;
+};
+
 const LINK_EVENTS_BATCH_SIZE = 200;
 
 function getEventIdBatches(ids: string[]) {
@@ -46,6 +57,84 @@ function getEventIdBatches(ids: string[]) {
   }
 
   return batches;
+}
+
+export async function reassignEventsToPlayer(params: {
+  eventIds: string[];
+  targetPlayerId: string;
+}): Promise<ReassignEventsToPlayerResult> {
+  const eventIds = Array.from(new Set(params.eventIds.filter(Boolean)));
+  const { targetPlayerId } = params;
+
+  if (eventIds.length === 0) {
+    return {
+      updatedEvents: 0,
+      eventIds: [],
+      targetPlayerId,
+    };
+  }
+
+  if (!targetPlayerId) {
+    throw new Error("Selecione um jogador para receber os eventos.");
+  }
+
+  const { data: player, error: playerError } = await supabase
+    .from("players")
+    .select("id, side")
+    .eq("id", targetPlayerId)
+    .maybeSingle();
+
+  if (playerError) throw playerError;
+  if (!player) {
+    throw new Error("Jogador de destino nao foi encontrado.");
+  }
+
+  const targetPlayer = player as LinkTargetPlayer;
+
+  const { data: events, error: eventsError } = await supabase
+    .from("events")
+    .select("id, side")
+    .in("id", eventIds);
+
+  if (eventsError) throw eventsError;
+
+  const foundEvents = (events ?? []) as ReassignEventRecord[];
+  const foundEventIds = new Set(foundEvents.map((event) => event.id));
+  const missingEventIds = eventIds.filter((eventId) => !foundEventIds.has(eventId));
+
+  if (missingEventIds.length > 0) {
+    throw new Error("Um ou mais eventos da previa nao foram encontrados.");
+  }
+
+  const incompatibleEvent = foundEvents.find(
+    (event) =>
+      (event.side === "PEDRO" || event.side === "NETU") &&
+      event.side !== targetPlayer.side
+  );
+
+  if (incompatibleEvent) {
+    throw new Error("Ha eventos de outro lado/time nesta resolucao.");
+  }
+
+  let updatedEvents = 0;
+
+  for (const batch of getEventIdBatches(eventIds)) {
+    const { data: updated, error: updateError } = await supabase
+      .from("events")
+      .update({ player_id: targetPlayerId })
+      .in("id", batch)
+      .select("id");
+
+    if (updateError) throw updateError;
+
+    updatedEvents += updated?.length ?? 0;
+  }
+
+  return {
+    updatedEvents,
+    eventIds,
+    targetPlayerId,
+  };
 }
 
 export async function linkUnresolvedEventsToPlayer({
