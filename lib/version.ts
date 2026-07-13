@@ -9,16 +9,16 @@ export type VersionInfo = {
 };
 
 /**
- * Valores desta Sprint (Duel Legacy / 0.9.5.1)
+ * Valores desta Sprint (Duel Legacy / 0.9.6)
  */
-const VERSION_NUMBER = "0.9.5.1";
-const VERSION_CODENAME = "Divergencias Sem Acao Segura";
+const VERSION_NUMBER = "0.9.6";
+const VERSION_CODENAME = "Centro de Curadoria";
 const VERSION_RELEASED_AT = "2026-07-13";
 const VERSION_COMMIT = null;
 const VERSION_HIGHLIGHTS = [
-  "Explicacao visivel para divergencias sem correcao segura",
-  "Eventos excedentes listados em modo somente leitura",
-  "Aplicar permanece desabilitado quando nao ha mutacao real",
+  "Nova area administrativa Centro de Curadoria",
+  "Ferramentas de auditoria movidas para /curadoria",
+  "Pagina Jogadores focada em busca, lista, aliases e mesclagem",
 ];
 
 function getCommitFromEnv() {

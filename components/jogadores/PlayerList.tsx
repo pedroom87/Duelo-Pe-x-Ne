@@ -37,6 +37,7 @@ interface Props {
   players: PlayerWithAliases[];
   rankingsAudit: RankingsDataHealthAudit;
   globalSearchIndex: PlayerGlobalSearchIndex;
+  mode?: "players" | "curation";
 }
 
 type UnlinkedAuditGroup = RankingsDataHealthAudit["unlinkedEventNames"][number];
@@ -58,6 +59,11 @@ type ImportCoverageMatchDifference =
 
 const GLOBAL_SEARCH_SECTION_ID = "busca-global-jogadores";
 const CURATION_SECTION_ID = "curadoria-jogadores";
+const DATA_HEALTH_SECTION_ID = "saude-dos-dados";
+const OFFICIAL_VALIDATOR_SECTION_ID = "validador-oficial";
+const SAFE_RECONCILIATION_SECTION_ID = "reconciliacao-segura";
+const IMPORT_COVERAGE_SECTION_ID = "cobertura-importacao";
+const EVENT_INVESTIGATOR_SECTION_ID = "investigador-eventos";
 
 type IdentityResolutionPreviewAlias = {
   alias: string;
@@ -1279,7 +1285,9 @@ export default function PlayerList({
   players,
   rankingsAudit,
   globalSearchIndex,
+  mode = "players",
 }: Props) {
+  const isCurationMode = mode === "curation";
   const [playerList, setPlayerList] = useState<PlayerWithAliases[]>(players);
   const [audit, setAudit] = useState<RankingsDataHealthAudit>(rankingsAudit);
   const [globalIndex, setGlobalIndex] =
@@ -2048,7 +2056,11 @@ export default function PlayerList({
 
         <p className="mt-2 text-sm text-zinc-400">{team.club}</p>
 
-        <div className="mt-4 grid grid-cols-2 gap-2">
+        <div
+          className={`mt-4 grid grid-cols-2 gap-2 ${
+            isCurationMode ? "" : "hidden"
+          }`}
+        >
           <div className="rounded-lg border border-zinc-800 bg-zinc-950 p-3">
             <p className="text-xs text-zinc-500">Vinculados</p>
             <p className="mt-1 font-bold text-zinc-100">
@@ -2063,19 +2075,23 @@ export default function PlayerList({
           </div>
         </div>
 
-        <p className="mt-3 rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2 text-xs font-bold uppercase tracking-[0.25em] text-zinc-400">
+        <p
+          className={`mt-3 rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2 text-xs font-bold uppercase tracking-[0.25em] text-zinc-400 ${
+            isCurationMode ? "" : "hidden"
+          }`}
+        >
           {status === "VINCULO_PENDENTE"
             ? "Vínculo pendente"
             : "Sem evento provável encontrado"}
         </p>
 
-        {linkedEventsCount === 0 ? (
+        {isCurationMode && linkedEventsCount === 0 ? (
           <p className="mt-3 rounded-xl border border-yellow-800 bg-yellow-950/25 px-3 py-2 text-xs font-semibold text-yellow-200">
             Eventos vinculados zerados indicam vínculo pendente no histórico importado.
           </p>
         ) : null}
 
-        {probableEventsCount > 0 ? (
+        {isCurationMode && probableEventsCount > 0 ? (
           <div className="mt-3">
             <p className="text-xs uppercase tracking-[0.2em] text-zinc-500">
               Fontes prováveis
@@ -2093,7 +2109,7 @@ export default function PlayerList({
 
             {!dim ? (
               <a
-                href="#auditoria-acionavel"
+                href={`#${EVENT_INVESTIGATOR_SECTION_ID}`}
                 className="mt-3 inline-flex text-sm font-bold text-blue-300 hover:text-blue-200"
               >
                 Ir para auditoria acionável
@@ -2146,14 +2162,16 @@ export default function PlayerList({
           </button>
         </div>
 
-        <button
-          type="button"
-          onClick={() => abrirExclusao(player.id)}
-          disabled={deleteLoadingId === player.id}
-          className="mt-4 w-full rounded-lg border border-red-800 bg-red-950/30 px-4 py-3 text-sm font-bold text-red-200 transition hover:bg-red-950/50 disabled:opacity-50"
-        >
-          {deleteLoadingId === player.id ? "Verificando..." : "Excluir jogador"}
-        </button>
+        {isCurationMode ? (
+          <button
+            type="button"
+            onClick={() => abrirExclusao(player.id)}
+            disabled={deleteLoadingId === player.id}
+            className="mt-4 w-full rounded-lg border border-red-800 bg-red-950/30 px-4 py-3 text-sm font-bold text-red-200 transition hover:bg-red-950/50 disabled:opacity-50"
+          >
+            {deleteLoadingId === player.id ? "Verificando..." : "Excluir jogador"}
+          </button>
+        ) : null}
       </div>
     );
   }
@@ -2230,6 +2248,56 @@ export default function PlayerList({
       value: formatNumber(audit.possibleDuplicateGroupsCount),
     },
   ];
+  const curationPendingCount =
+    audit.eventsWithoutPlayerId +
+    audit.aliasConflictsCount +
+    audit.possibleDuplicateGroupsCount +
+    officialRankingValidator.divergentPlayersCount +
+    importCoverage.missingExpectedEvents;
+  const curationToolCards = [
+    {
+      title: "Saude dos Dados",
+      description: "Confiabilidade geral dos dados dos rankings.",
+      href: `#${DATA_HEALTH_SECTION_ID}`,
+      counterLabel: "pendencias",
+      counter: formatNumber(curationPendingCount),
+    },
+    {
+      title: "Validador Oficial",
+      description: "Divergencias entre historico e site.",
+      href: `#${OFFICIAL_VALIDATOR_SECTION_ID}`,
+      counterLabel: "divergentes",
+      counter: formatNumber(officialRankingValidator.divergentPlayersCount),
+    },
+    {
+      title: "Curadoria de Identidades",
+      description: "Duplicados suspeitos e vinculos pendentes.",
+      href: `#${CURATION_SECTION_ID}`,
+      counterLabel: "pendencias",
+      counter: formatNumber(counts.possibleDuplicates + counts.pending),
+    },
+    {
+      title: "Reconciliacao Segura",
+      description: "Eventos sem jogador com destino confirmado.",
+      href: `#${SAFE_RECONCILIATION_SECTION_ID}`,
+      counterLabel: "seguros",
+      counter: formatNumber(reconciliation.safeCount),
+    },
+    {
+      title: "Cobertura da Importacao",
+      description: "Eventos historicos esperados ainda ausentes.",
+      href: `#${IMPORT_COVERAGE_SECTION_ID}`,
+      counterLabel: "ausentes",
+      counter: formatNumber(importCoverage.missingExpectedEvents),
+    },
+    {
+      title: "Investigador de Eventos",
+      description: "Eventos sem player_id para revisao manual.",
+      href: `#${EVENT_INVESTIGATOR_SECTION_ID}`,
+      counterLabel: "sem player_id",
+      counter: formatNumber(audit.eventsWithoutPlayerId),
+    },
+  ];
 
   return (
     <div className="space-y-6">
@@ -2242,10 +2310,11 @@ export default function PlayerList({
         />
       </div>
 
-      <section
-        id={GLOBAL_SEARCH_SECTION_ID}
-        className="rounded-2xl border border-zinc-800 bg-zinc-900 p-4 sm:p-5"
-      >
+      {!isCurationMode ? (
+        <section
+          id={GLOBAL_SEARCH_SECTION_ID}
+          className="rounded-2xl border border-zinc-800 bg-zinc-900 p-4 sm:p-5"
+        >
         <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
           <div>
             <h2 className="text-xl font-black">Busca global de jogadores</h2>
@@ -2545,9 +2614,56 @@ export default function PlayerList({
             </div>
           </div>
         )}
-      </section>
+        </section>
+      ) : null}
 
-      <section className="rounded-2xl border border-zinc-800 bg-zinc-900 p-4 sm:p-5">
+      {isCurationMode ? (
+        <section className="rounded-2xl border border-zinc-800 bg-zinc-900 p-4 sm:p-5">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+            <div>
+              <h2 className="text-xl font-black">Centro de Curadoria</h2>
+              <p className="mt-2 text-sm text-zinc-400">
+                Ferramentas administrativas para revisar divergencias sem alterar regras de negocio.
+              </p>
+            </div>
+
+            <div className="rounded-xl border border-yellow-800 bg-yellow-950/25 px-4 py-3 text-sm font-bold text-yellow-100">
+              {formatNumber(curationPendingCount)} pendencia(s)
+            </div>
+          </div>
+
+          <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+            {curationToolCards.map((tool) => (
+              <a
+                key={tool.href}
+                href={tool.href}
+                className="rounded-xl border border-zinc-800 bg-zinc-950 p-4 transition hover:border-blue-700 hover:bg-zinc-900"
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <h3 className="text-base font-black text-zinc-100">
+                      {tool.title}
+                    </h3>
+                    <p className="mt-2 text-sm text-zinc-400">{tool.description}</p>
+                  </div>
+                  <span className="shrink-0 rounded-full border border-zinc-700 px-3 py-1 text-xs font-bold text-zinc-200">
+                    {tool.counter}
+                  </span>
+                </div>
+                <p className="mt-4 text-xs font-bold uppercase tracking-[0.25em] text-zinc-500">
+                  {tool.counterLabel}
+                </p>
+              </a>
+            ))}
+          </div>
+        </section>
+      ) : null}
+
+      {isCurationMode ? (
+        <section
+          id={DATA_HEALTH_SECTION_ID}
+          className="rounded-2xl border border-zinc-800 bg-zinc-900 p-4 sm:p-5"
+        >
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div>
             <h2 className="text-xl font-black">Saúde dos Dados</h2>
@@ -2579,19 +2695,21 @@ export default function PlayerList({
           ))}
         </div>
 
-        <OfficialRankingValidatorBlock
-          summary={officialRankingValidator}
-          playerList={playerList}
-          selectedTargetByRowKey={validatorTargetByRowKey}
-          actionLoadingKey={validatorActionLoadingKey}
-          onSelectTarget={(rowKey, playerId) =>
-            setValidatorTargetByRowKey((current) => ({
-              ...current,
-              [rowKey]: playerId,
-            }))
-          }
-          onPrepareResolution={handlePrepareIdentityResolution}
-        />
+        <div id={OFFICIAL_VALIDATOR_SECTION_ID}>
+          <OfficialRankingValidatorBlock
+            summary={officialRankingValidator}
+            playerList={playerList}
+            selectedTargetByRowKey={validatorTargetByRowKey}
+            actionLoadingKey={validatorActionLoadingKey}
+            onSelectTarget={(rowKey, playerId) =>
+              setValidatorTargetByRowKey((current) => ({
+                ...current,
+                [rowKey]: playerId,
+              }))
+            }
+            onPrepareResolution={handlePrepareIdentityResolution}
+          />
+        </div>
         {identityResolutionHistory.length > 0 ? (
           <div className="mt-4 rounded-xl border border-zinc-800 bg-zinc-950 p-4">
             <h3 className="text-sm font-black text-zinc-100">
@@ -2618,8 +2736,12 @@ export default function PlayerList({
             </div>
           </div>
         ) : null}
-        <ReconciliationSummaryBlock summary={reconciliation} />
-        <ImportCoverageSummaryBlock summary={importCoverage} />
+        <div id={SAFE_RECONCILIATION_SECTION_ID}>
+          <ReconciliationSummaryBlock summary={reconciliation} />
+        </div>
+        <div id={IMPORT_COVERAGE_SECTION_ID}>
+          <ImportCoverageSummaryBlock summary={importCoverage} />
+        </div>
 
         {!audit.hasRelevantIssues ? (
           <p className="mt-5 rounded-xl border border-emerald-800 bg-emerald-950/25 px-4 py-3 text-sm font-semibold text-emerald-200">
@@ -2628,7 +2750,7 @@ export default function PlayerList({
         ) : (
           <div className="mt-5 grid gap-3 xl:grid-cols-3">
             <details
-              id="auditoria-acionavel"
+              id={EVENT_INVESTIGATOR_SECTION_ID}
               className="rounded-xl border border-zinc-800 bg-zinc-950 p-3"
               open={audit.eventsWithoutPlayerId > 0}
             >
@@ -2864,18 +2986,30 @@ export default function PlayerList({
             </details>
           </div>
         )}
-      </section>
+        </section>
+      ) : null}
 
       <section
         id={CURATION_SECTION_ID}
         className="rounded-2xl border border-zinc-800 bg-zinc-900 p-4 sm:p-5"
       >
-        <h2 className="text-xl font-black">Curadoria assistida de jogadores</h2>
-        <p className="mt-2 text-sm text-zinc-400">
+        <h2 className="text-xl font-black">
+          {isCurationMode ? "Curadoria de Identidades" : "Lista de jogadores"}
+        </h2>
+        {!isCurationMode ? (
+          <p className="mt-2 text-sm text-zinc-400">
+            Gerencie jogadores, edite dados basicos e mantenha aliases consolidados.
+          </p>
+        ) : null}
+        <p className={`mt-2 text-sm text-zinc-400 ${isCurationMode ? "" : "hidden"}`}>
           O sistema sugere suspeitas (com base em nomes e aliases). Nenhuma mesclagem é automática — a decisão final é sua.
         </p>
 
-        <div className="mt-4 grid gap-2 sm:grid-cols-3">
+        <div
+          className={`mt-4 grid gap-2 sm:grid-cols-3 ${
+            isCurationMode ? "" : "hidden"
+          }`}
+        >
           <div className="rounded-xl border border-zinc-800 bg-zinc-950 p-3">
             <p className="text-xs font-bold uppercase tracking-[0.3em] text-zinc-500">
               Possíveis duplicados
@@ -2900,7 +3034,11 @@ export default function PlayerList({
           </div>
         </div>
 
-        <div className="mt-5 flex items-center justify-between gap-3">
+        <div
+          className={`mt-5 flex items-center justify-between gap-3 ${
+            isCurationMode ? "" : "hidden"
+          }`}
+        >
           <p className="text-sm font-bold text-zinc-200">Vínculos pendentes</p>
 
           <label className="flex cursor-pointer items-center gap-2 text-sm text-zinc-300">
@@ -2916,26 +3054,37 @@ export default function PlayerList({
         </div>
 
         <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-          {suspects.length === 0 && pendingPlayers.length === 0 ? (
+          {isCurationMode && suspects.length === 0 && pendingPlayers.length === 0 ? (
             <div className="col-span-full rounded-2xl border border-zinc-800 bg-zinc-950 p-5 text-sm text-zinc-300">
               Nenhuma pendência de curadoria encontrada.
             </div>
           ) : null}
 
-          {suspects.map((player) => (
-            <PlayerCard key={player.id} player={player} />
-          ))}
+          {isCurationMode
+            ? suspects.map((player) => (
+                <PlayerCard key={player.id} player={player} />
+              ))
+            : filtered.map((player) => (
+                <PlayerCard key={player.id} player={player} />
+              ))}
 
-          {showPendingOnly
+          {isCurationMode && showPendingOnly
             ? pendingPlayers.map((player) => (
                 <PlayerCard key={player.id} player={player} dim />
               ))
             : null}
+
+          {!isCurationMode && filtered.length === 0 ? (
+            <div className="col-span-full rounded-2xl border border-zinc-800 bg-zinc-950 p-5 text-sm text-zinc-300">
+              Nenhum jogador encontrado.
+            </div>
+          ) : null}
         </div>
       </section>
 
-      <section className="rounded-2xl border border-zinc-800 bg-zinc-900 p-4 sm:p-5">
-        <h2 className="text-xl font-black">Mesclagem manual</h2>
+      {!isCurationMode ? (
+        <section className="rounded-2xl border border-zinc-800 bg-zinc-900 p-4 sm:p-5">
+          <h2 className="text-xl font-black">Mesclagem manual</h2>
 
         <div className="mt-4 grid gap-3 lg:grid-cols-[1fr_1fr_auto]">
           <label className="block text-sm text-zinc-300">
@@ -2982,7 +3131,8 @@ export default function PlayerList({
             {mergeLoading ? "Mesclando..." : "Mesclar"}
           </button>
         </div>
-      </section>
+        </section>
+      ) : null}
 
       {feedback ? (
         <p className="rounded-xl border border-zinc-800 bg-zinc-900 px-4 py-3 text-sm text-zinc-300">

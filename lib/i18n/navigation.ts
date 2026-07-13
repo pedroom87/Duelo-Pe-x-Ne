@@ -7,6 +7,7 @@ const NAV_LABEL_KEYS_BY_HREF: Record<string, MessageKey> = {
   "/rankings": "nav.rankings",
   "/disciplina": "nav.discipline",
   "/jogadores": "nav.players",
+  "/curadoria": "nav.curation",
   "/importar-historico": "nav.importHistory",
   "/projeto": "nav.project",
 };

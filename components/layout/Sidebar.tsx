@@ -51,16 +51,24 @@ export function Sidebar({ userEmail, profile, loginHref, onSignOut }: SidebarPro
       </div>
 
       <nav className="space-y-2">
-        {items.map(({ icon, label, href }) => (
+        {items.map(({ icon, label, href, badgeLabel }) => (
           <Link
             key={href}
             href={href}
             className="flex items-center gap-3 rounded-xl px-4 py-3 font-bold text-zinc-300 hover:bg-zinc-900 hover:text-white"
           >
             <span>{icon}</span>
-            <span>
+            <span className="min-w-0 flex-1">
               {href === "/perfil" ? t("common.profile") : getNavItemLabel(href, label, t)}
             </span>
+            {badgeLabel ? (
+              <span
+                aria-label="Pendencias"
+                className="rounded-full border border-yellow-700 bg-yellow-950/40 px-2 py-0.5 text-xs font-black text-yellow-100"
+              >
+                {badgeLabel}
+              </span>
+            ) : null}
           </Link>
         ))}
       </nav>

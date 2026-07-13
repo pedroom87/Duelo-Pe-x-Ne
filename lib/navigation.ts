@@ -11,6 +11,7 @@ export type AppNavItem = {
   icon: string;
   requiresAuth: boolean;
   placements: NavigationPlacement[];
+  badgeLabel?: string;
 };
 
 export const APP_NAV_ITEMS: AppNavItem[] = [
@@ -55,6 +56,14 @@ export const APP_NAV_ITEMS: AppNavItem[] = [
     icon: "👥",
     requiresAuth: true,
     placements: ["sidebar", "dashboard"],
+  },
+  {
+    label: "Curadoria",
+    href: "/curadoria",
+    icon: "C",
+    requiresAuth: true,
+    placements: ["sidebar"],
+    badgeLabel: "!",
   },
   {
     label: "Perfil",
