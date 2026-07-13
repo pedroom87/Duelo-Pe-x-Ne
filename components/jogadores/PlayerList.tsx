@@ -22,6 +22,7 @@ import {
   mergePlayers,
   reassignAliasOwner,
 } from "@/lib/playerAliases";
+import { linkUnresolvedEventsToPlayer } from "@/lib/events";
 import { normalizeText } from "@/lib/playerIdentity";
 import { formatSupabaseError } from "@/lib/supabaseErrors";
 import { TeamBadge } from "@/components/teams/TeamBadge";
@@ -34,6 +35,7 @@ interface Props {
 }
 
 type UnlinkedAuditGroup = RankingsDataHealthAudit["unlinkedEventNames"][number];
+type UnlinkedAuditSideGroup = UnlinkedAuditGroup["sideGroups"][number];
 type GlobalSearchAlias = PlayerGlobalSearchIndex["aliases"][number];
 type ReconciliationSummary = RankingsDataHealthAudit["reconciliationSummary"];
 type ReconciliationSample = ReconciliationSummary["samples"]["safe"][number];
@@ -301,7 +303,7 @@ function ReconciliationSummaryBlock({
         </div>
 
         <p className="rounded-lg border border-blue-700 bg-blue-950/40 px-3 py-2 text-xs font-bold text-blue-100">
-          Vinculação em lote será liberada após validação desta auditoria.
+          Reatribuição disponível apenas nos itens com um único destino confirmado.
         </p>
       </div>
 
@@ -672,11 +674,177 @@ function getOfficialValidatorDifferenceClasses(difference: number) {
   return "text-red-200";
 }
 
+function formatOfficialValidatorPlayers(row: OfficialRankingValidatorRow) {
+  if (row.matchedPlayers.length === 0) return "Sem cadastro vinculado";
+
+  return row.matchedPlayers
+    .map((player) => `${player.name} (${formatAuditSide(player.side)})`)
+    .join(", ");
+}
+
+function formatOfficialValidatorAliases(row: OfficialRankingValidatorRow) {
+  if (row.aliases.length === 0) return "Sem alias";
+
+  return row.aliases.map((alias) => alias.alias).join(", ");
+}
+
+function formatOfficialValidatorPlayerIds(row: OfficialRankingValidatorRow) {
+  const ids = row.matchedPlayers.map((player) => player.id);
+
+  if (ids.length === 0 && row.playerId) ids.push(row.playerId);
+  if (ids.length === 0) return "Sem player_id";
+
+  return Array.from(new Set(ids)).join(", ");
+}
+
+function formatOfficialValidatorMatches(row: OfficialRankingValidatorRow) {
+  if (row.matchNumbers.length === 0) return "Sem partidas";
+
+  return row.matchNumbers.map((matchNumber) => `#${matchNumber}`).join(", ");
+}
+
+function getOfficialValidatorUnlinkedEventNames(row: OfficialRankingValidatorRow) {
+  const byNormalizedName = new Map<string, string>();
+
+  row.databaseEvents.forEach((event) => {
+    if (event.playerId) return;
+
+    const normalizedName = normalizeText(event.playerNameRaw);
+    if (!normalizedName) return;
+
+    byNormalizedName.set(normalizedName, event.playerNameRaw);
+  });
+
+  return Array.from(byNormalizedName.values()).sort((a, b) =>
+    a.localeCompare(b)
+  );
+}
+
+type OfficialRankingValidatorBlockProps = {
+  summary: OfficialRankingValidatorSummary;
+  playerList: PlayerWithAliases[];
+  selectedTargetByRowKey: Record<string, string>;
+  actionLoadingKey: string | null;
+  onSelectTarget: (rowKey: string, playerId: string) => void;
+  onAddOfficialAliases: (
+    row: OfficialRankingValidatorRow,
+    targetPlayerId: string,
+    aliases: OfficialRankingValidatorRow["aliases"]
+  ) => Promise<void>;
+  onLinkConfirmedEvents: (
+    row: OfficialRankingValidatorRow,
+    targetPlayerId: string
+  ) => Promise<void>;
+};
+
+function OfficialRankingValidatorEventList({
+  title,
+  emptyMessage,
+  events,
+}: {
+  title: string;
+  emptyMessage: string;
+  events: OfficialRankingValidatorRow["historicalEvents"];
+}) {
+  return (
+    <div className="rounded-lg border border-zinc-800 bg-zinc-950 p-3">
+      <p className="text-xs font-bold uppercase tracking-[0.2em] text-zinc-500">
+        {title}
+      </p>
+      {events.length === 0 ? (
+        <p className="mt-3 text-xs text-zinc-500">{emptyMessage}</p>
+      ) : (
+        <div className="mt-3 max-h-56 space-y-2 overflow-y-auto pr-1">
+          {events.map((event) => (
+            <div
+              key={`${event.matchNumber}-${event.seq}-${event.playerNameRaw}-${event.eventType}`}
+              className="rounded-lg border border-zinc-800 bg-zinc-900 px-3 py-2 text-xs text-zinc-300"
+            >
+              <p className="font-bold text-zinc-100">{event.playerNameRaw}</p>
+              <p className="mt-1 text-zinc-500">
+                {formatMatchNumber(event.matchNumber)} · Seq {event.seq} ·{" "}
+                {formatEventType(event.eventType)} · {formatAuditSide(event.side)}
+              </p>
+              <p className="mt-1 text-zinc-500">
+                Origem: {formatSourceCell(event.sourceCell)}
+              </p>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function OfficialRankingValidatorDatabaseEventList({
+  title,
+  emptyMessage,
+  events,
+}: {
+  title: string;
+  emptyMessage: string;
+  events: OfficialRankingValidatorRow["databaseEvents"];
+}) {
+  return (
+    <div className="rounded-lg border border-zinc-800 bg-zinc-950 p-3">
+      <p className="text-xs font-bold uppercase tracking-[0.2em] text-zinc-500">
+        {title}
+      </p>
+      {events.length === 0 ? (
+        <p className="mt-3 text-xs text-zinc-500">{emptyMessage}</p>
+      ) : (
+        <div className="mt-3 max-h-56 space-y-2 overflow-y-auto pr-1">
+          {events.map((event) => (
+            <div
+              key={event.id}
+              className="rounded-lg border border-zinc-800 bg-zinc-900 px-3 py-2 text-xs text-zinc-300"
+            >
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <p className="break-words font-bold text-zinc-100">
+                    {event.playerNameRaw}
+                  </p>
+                  <p className="mt-1 text-zinc-500">
+                    {formatMatchNumber(event.matchNumber)} · Seq{" "}
+                    {event.seq ?? "-"} · {formatEventType(event.eventType)} ·{" "}
+                    {formatAuditSide(event.side)}
+                  </p>
+                </div>
+                <span
+                  className={`shrink-0 rounded-full border px-2 py-1 font-bold ${
+                    event.playerId
+                      ? "border-emerald-700 bg-emerald-950/30 text-emerald-200"
+                      : "border-yellow-700 bg-yellow-950/30 text-yellow-200"
+                  }`}
+                >
+                  {event.playerId ? "Com player_id" : "Sem player_id"}
+                </span>
+              </div>
+              <p className="mt-2 text-zinc-500">Evento ID {event.id}</p>
+              <p className="mt-1 text-zinc-500">
+                player_id: {event.playerId ?? "sem player_id"} · resolvido:{" "}
+                {event.resolvedPlayerId ?? "sem destino"}
+              </p>
+              <p className="mt-1 text-zinc-500">
+                Origem: {formatSourceCell(event.sourceCell)}
+              </p>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function OfficialRankingValidatorBlock({
   summary,
-}: {
-  summary: OfficialRankingValidatorSummary;
-}) {
+  playerList,
+  selectedTargetByRowKey,
+  actionLoadingKey,
+  onSelectTarget,
+  onAddOfficialAliases,
+  onLinkConfirmedEvents,
+}: OfficialRankingValidatorBlockProps) {
   const cards = [
     {
       label: "Gols no histórico",
@@ -704,12 +872,12 @@ function OfficialRankingValidatorBlock({
             Validador oficial dos rankings
           </h3>
           <p className="mt-2 text-sm text-cyan-100">
-            Compara gols por jogador entre a planilha histórica extraída e o ranking atual do site.
+            Divergências viram ações manuais: ver detalhes, confirmar destino e só então executar.
           </p>
         </div>
 
         <p className="rounded-lg border border-cyan-700 bg-cyan-950/40 px-3 py-2 text-xs font-bold text-cyan-100">
-          Correções serão liberadas após validação desta auditoria.
+          Nenhuma correção automática será executada.
         </p>
       </div>
 
@@ -725,86 +893,218 @@ function OfficialRankingValidatorBlock({
         </p>
       ) : null}
 
-      <div className="mt-4 overflow-x-auto rounded-xl border border-zinc-800">
-        <table className="w-full min-w-[760px] border-collapse text-left text-sm">
-          <thead className="bg-zinc-950 text-xs uppercase tracking-[0.2em] text-zinc-500">
-            <tr>
-              <th className="px-3 py-3">Jogador</th>
-              <th className="px-3 py-3 text-right">Planilha/histórico</th>
-              <th className="px-3 py-3 text-right">Site/banco</th>
-              <th className="px-3 py-3 text-right">Diferença</th>
-              <th className="px-3 py-3">Status</th>
-            </tr>
-          </thead>
-          <tbody>
-            {summary.rows.map((row) => (
-              <tr
-                key={row.key}
-                className={`border-t border-zinc-800 ${
-                  row.isFeatured ? "bg-cyan-950/25" : "bg-zinc-950/50"
-                }`}
-              >
-                <td className="px-3 py-3 align-top">
-                  <div className="min-w-0">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <p className="break-words font-bold text-zinc-100">
-                        {row.playerName}
+      <div className="mt-4 space-y-3">
+        {summary.rows.map((row) => {
+          const sidePlayers = playerList
+            .filter((player) => player.side === row.side)
+            .sort((a, b) => a.name.localeCompare(b.name));
+          const defaultTargetId =
+            row.matchedPlayers.length === 1 ? row.matchedPlayers[0]!.id : "";
+          const selectedTargetId =
+            selectedTargetByRowKey[row.key] ?? defaultTargetId;
+          const selectedTarget = sidePlayers.find(
+            (player) => player.id === selectedTargetId
+          );
+          const registeredAliasKeys = new Set(
+            row.aliases
+              .filter((alias) => alias.source === "Cadastro")
+              .map((alias) => alias.normalizedAlias)
+          );
+          const aliasesToAdd = row.aliases.filter(
+            (alias) =>
+              alias.source === "Grupo oficial" &&
+              !registeredAliasKeys.has(alias.normalizedAlias)
+          );
+          const unlinkedEventNames = getOfficialValidatorUnlinkedEventNames(row);
+          const aliasLoadingKey = `aliases:${row.key}`;
+          const eventsLoadingKey = `events:${row.key}`;
+
+          return (
+            <details
+              key={row.key}
+              className={`rounded-xl border p-3 ${
+                row.status === "Divergente"
+                  ? "border-red-900 bg-zinc-950"
+                  : "border-zinc-800 bg-zinc-950"
+              }`}
+              open={row.status === "Divergente" && row.isFeatured}
+            >
+              <summary className="flex cursor-pointer list-none flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className="break-words text-sm font-black text-zinc-100">
+                      {row.playerName}
+                    </p>
+                    <span className="rounded-full border border-zinc-700 px-2 py-1 text-xs text-zinc-300">
+                      {formatAuditSide(row.side)}
+                    </span>
+                    <span
+                      className={`rounded-full border px-2 py-1 text-xs font-bold ${getOfficialValidatorStatusClasses(
+                        row.status
+                      )}`}
+                    >
+                      {row.status}
+                    </span>
+                  </div>
+                  <p className="mt-1 text-xs text-zinc-500">
+                    Ver detalhes · {formatOfficialValidatorMatches(row)}
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-3 gap-2 text-right text-xs sm:min-w-[260px]">
+                  <div>
+                    <p className="text-zinc-500">Histórico</p>
+                    <p className="font-black text-zinc-100">
+                      {formatNumber(row.historicalGoals)}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-zinc-500">Site</p>
+                    <p className="font-black text-zinc-100">
+                      {formatNumber(row.siteGoals)}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-zinc-500">Dif.</p>
+                    <p
+                      className={`font-black ${getOfficialValidatorDifferenceClasses(
+                        row.difference
+                      )}`}
+                    >
+                      {formatSignedNumber(row.difference)}
+                    </p>
+                  </div>
+                </div>
+              </summary>
+
+              <div className="mt-4 grid gap-3 xl:grid-cols-[minmax(0,1fr)_360px]">
+                <div className="space-y-3">
+                  <div className="grid gap-2 md:grid-cols-2">
+                    <div className="rounded-lg border border-zinc-800 bg-zinc-900 p-3 text-sm">
+                      <p className="text-xs font-bold uppercase tracking-[0.2em] text-zinc-500">
+                        Cadastro
                       </p>
-                      <span className="rounded-full border border-zinc-700 px-2 py-1 text-xs text-zinc-300">
-                        {formatAuditSide(row.side)}
-                      </span>
-                      {row.isFeatured ? (
-                        <span className="rounded-full border border-cyan-700 bg-cyan-950/50 px-2 py-1 text-xs font-bold text-cyan-100">
-                          Destaque
-                        </span>
-                      ) : null}
+                      <p className="mt-2 break-words font-semibold text-zinc-200">
+                        {formatOfficialValidatorPlayers(row)}
+                      </p>
+                      <p className="mt-1 break-words text-xs text-zinc-500">
+                        {formatOfficialValidatorPlayerIds(row)}
+                      </p>
                     </div>
 
-                    {row.rawHistoricalNames.length > 0 ? (
-                      <p className="mt-1 break-words text-xs text-zinc-500">
-                        Histórico: {row.rawHistoricalNames.join(", ")}
+                    <div className="rounded-lg border border-zinc-800 bg-zinc-900 p-3 text-sm">
+                      <p className="text-xs font-bold uppercase tracking-[0.2em] text-zinc-500">
+                        Aliases
                       </p>
-                    ) : null}
-
-                    {row.matchedPlayers.length > 0 ? (
-                      <p className="mt-1 break-words text-xs text-zinc-500">
-                        Cadastro:{" "}
-                        {row.matchedPlayers
-                          .map(
-                            (player) =>
-                              `${player.name} (${formatAuditSide(player.side)})`
-                          )
-                          .join(", ")}
+                      <p className="mt-2 break-words font-semibold text-zinc-200">
+                        {formatOfficialValidatorAliases(row)}
                       </p>
-                    ) : null}
+                      <p className="mt-1 break-words text-xs text-zinc-500">
+                        Histórico:{" "}
+                        {row.rawHistoricalNames.length > 0
+                          ? row.rawHistoricalNames.join(", ")
+                          : "sem nomes"}
+                      </p>
+                    </div>
                   </div>
-                </td>
-                <td className="px-3 py-3 text-right align-top font-bold text-zinc-100">
-                  {formatNumber(row.historicalGoals)}
-                </td>
-                <td className="px-3 py-3 text-right align-top font-bold text-zinc-100">
-                  {formatNumber(row.siteGoals)}
-                </td>
-                <td
-                  className={`px-3 py-3 text-right align-top font-black ${getOfficialValidatorDifferenceClasses(
-                    row.difference
-                  )}`}
-                >
-                  {formatSignedNumber(row.difference)}
-                </td>
-                <td className="px-3 py-3 align-top">
-                  <span
-                    className={`inline-flex rounded-full border px-2 py-1 text-xs font-bold ${getOfficialValidatorStatusClasses(
-                      row.status
-                    )}`}
-                  >
-                    {row.status}
-                  </span>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+
+                  <div className="grid gap-3 lg:grid-cols-2">
+                    <OfficialRankingValidatorEventList
+                      title="Eventos no histórico"
+                      emptyMessage="Nenhum gol histórico neste grupo."
+                      events={row.historicalEvents}
+                    />
+                    <OfficialRankingValidatorDatabaseEventList
+                      title="Eventos no banco"
+                      emptyMessage="Nenhum gol no banco neste grupo."
+                      events={row.databaseEvents}
+                    />
+                  </div>
+                </div>
+
+                <div className="rounded-lg border border-cyan-800 bg-cyan-950/20 p-3">
+                  <p className="text-sm font-black text-cyan-100">
+                    Resolução manual
+                  </p>
+
+                  <label className="mt-3 block text-xs font-bold uppercase tracking-[0.2em] text-cyan-200">
+                    Destino confirmado
+                    <select
+                      value={selectedTargetId}
+                      onChange={(event) =>
+                        onSelectTarget(row.key, event.target.value)
+                      }
+                      className="mt-2 w-full rounded-lg border border-cyan-800 bg-zinc-950 px-3 py-3 text-sm normal-case tracking-normal text-white"
+                    >
+                      <option value="">Selecione um jogador</option>
+                      {sidePlayers.map((player) => (
+                        <option key={player.id} value={player.id}>
+                          {player.name} ({formatAuditSide(player.side)})
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+
+                  <p className="mt-3 text-xs text-cyan-100">
+                    A execução só acontece após confirmação explícita. Ao finalizar, a tela recarrega e o validador é recalculado.
+                  </p>
+
+                  <div className="mt-4 space-y-2">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        selectedTarget
+                          ? onAddOfficialAliases(
+                              row,
+                              selectedTarget.id,
+                              aliasesToAdd
+                            )
+                          : undefined
+                      }
+                      disabled={
+                        !selectedTarget ||
+                        aliasesToAdd.length === 0 ||
+                        actionLoadingKey !== null
+                      }
+                      className="w-full rounded-lg bg-cyan-700 px-4 py-3 text-sm font-bold text-white transition hover:bg-cyan-600 disabled:opacity-50"
+                    >
+                      {actionLoadingKey === aliasLoadingKey
+                        ? "Adicionando..."
+                        : `Adicionar alias (${formatNumber(aliasesToAdd.length)})`}
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() =>
+                        selectedTarget
+                          ? onLinkConfirmedEvents(row, selectedTarget.id)
+                          : undefined
+                      }
+                      disabled={
+                        !selectedTarget ||
+                        unlinkedEventNames.length === 0 ||
+                        actionLoadingKey !== null
+                      }
+                      className="w-full rounded-lg border border-cyan-700 bg-zinc-950 px-4 py-3 text-sm font-bold text-cyan-100 transition hover:bg-cyan-950/40 disabled:opacity-50"
+                    >
+                      {actionLoadingKey === eventsLoadingKey
+                        ? "Reatribuindo..."
+                        : `Reatribuir eventos (${formatNumber(
+                            unlinkedEventNames.length
+                          )})`}
+                    </button>
+                  </div>
+
+                  {aliasesToAdd.length === 0 && unlinkedEventNames.length === 0 ? (
+                    <p className="mt-3 rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-2 text-xs text-zinc-400">
+                      Nenhuma ação manual disponível para este item.
+                    </p>
+                  ) : null}
+                </div>
+              </div>
+            </details>
+          );
+        })}
       </div>
     </div>
   );
@@ -1019,6 +1319,11 @@ export default function PlayerList({
   const [editSide, setEditSide] = useState<"PEDRO" | "NETU">("PEDRO");
   const [editLoading, setEditLoading] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
+  const [validatorTargetByRowKey, setValidatorTargetByRowKey] = useState<
+    Record<string, string>
+  >({});
+  const [validatorActionLoadingKey, setValidatorActionLoadingKey] =
+    useState<string | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -1176,9 +1481,8 @@ export default function PlayerList({
         };
       });
 
-      const updatedGlobalIndex = await getPlayerGlobalSearchIndex();
-      setGlobalIndex(updatedGlobalIndex);
-      setFeedback("Alias salvo.");
+      await recarregarJogadores();
+      setFeedback("Alias salvo. Rankings e Validador Oficial recalculados.");
     } catch (error: unknown) {
       const message = formatSupabaseError(error, "Erro ao salvar alias.");
       setFeedback(message);
@@ -1216,17 +1520,10 @@ export default function PlayerList({
       await addAlias(playerId, alias);
 
       // Atualiza aliases e busca global para refletir a mudança
-      const updatedAliases = (await getAliases(playerId)) as PlayerAlias[];
-      setAliasesByPlayerId((current) => ({
-        ...current,
-        [playerId]: sortAliases(updatedAliases),
-      }));
-
-      const updatedGlobalIndex = await getPlayerGlobalSearchIndex();
-      setGlobalIndex(updatedGlobalIndex);
-
       setGlobalAliasDrafts((current) => ({ ...current, [playerId]: "" }));
-      setFeedback("Alias salvo na busca global.");
+      await recarregarJogadores();
+
+      setFeedback("Alias salvo na busca global. Rankings e Validador Oficial recalculados.");
     } catch (error: unknown) {
       const message = formatSupabaseError(error, "Erro ao adicionar alias na busca global.");
       setFeedback(message);
@@ -1308,6 +1605,132 @@ export default function PlayerList({
     setAliasesByPlayerId(buildAliasState(updatedPlayers));
     setMergeSourceId(nextSourceId);
     setMergeTargetId(nextTargetId);
+  }
+
+  async function handleAddOfficialAliases(
+    row: OfficialRankingValidatorRow,
+    targetPlayerId: string,
+    aliases: OfficialRankingValidatorRow["aliases"]
+  ) {
+    const target = playerList.find((player) => player.id === targetPlayerId);
+    const aliasesToAdd = aliases.filter((alias) => alias.source === "Grupo oficial");
+
+    if (!target || aliasesToAdd.length === 0) return;
+
+    const confirmed = window.confirm(
+      `Adicionar ${aliasesToAdd.length} alias(es) em ${target.name} (${formatAuditSide(target.side)}) e recalcular o validador?`
+    );
+    if (!confirmed) return;
+
+    const loadingKey = `aliases:${row.key}`;
+
+    try {
+      setValidatorActionLoadingKey(loadingKey);
+
+      for (const alias of aliasesToAdd) {
+        await addAlias(targetPlayerId, alias.alias);
+      }
+
+      await recarregarJogadores();
+      setFeedback(
+        `Alias adicionados para ${target.name}. Rankings e Validador Oficial recalculados.`
+      );
+    } catch (error: unknown) {
+      const message = formatSupabaseError(
+        error,
+        "Erro ao adicionar aliases oficiais."
+      );
+      setFeedback(message);
+    } finally {
+      setValidatorActionLoadingKey(null);
+    }
+  }
+
+  async function handleLinkConfirmedEvents(
+    row: OfficialRankingValidatorRow,
+    targetPlayerId: string
+  ) {
+    const target = playerList.find((player) => player.id === targetPlayerId);
+    const eventNames = getOfficialValidatorUnlinkedEventNames(row);
+
+    if (!target || eventNames.length === 0) return;
+
+    const confirmed = window.confirm(
+      `Reatribuir eventos sem player_id de ${eventNames.join(", ")} para ${target.name} (${formatAuditSide(target.side)}) e recalcular o validador?`
+    );
+    if (!confirmed) return;
+
+    const loadingKey = `events:${row.key}`;
+
+    try {
+      setValidatorActionLoadingKey(loadingKey);
+
+      let updatedEvents = 0;
+
+      for (const playerName of eventNames) {
+        const result = await linkUnresolvedEventsToPlayer({
+          normalizedPlayerName: playerName,
+          side: row.side,
+          playerId: targetPlayerId,
+        });
+
+        updatedEvents += result.updatedEvents;
+      }
+
+      await recarregarJogadores();
+      setFeedback(
+        `${formatNumber(updatedEvents)} evento(s) reatribuído(s) para ${target.name}. Rankings e Validador Oficial recalculados.`
+      );
+    } catch (error: unknown) {
+      const message = formatSupabaseError(
+        error,
+        "Erro ao reatribuir eventos confirmados."
+      );
+      setFeedback(message);
+    } finally {
+      setValidatorActionLoadingKey(null);
+    }
+  }
+
+  async function handleLinkUnlinkedAuditGroup(
+    group: UnlinkedAuditGroup,
+    sideGroup: UnlinkedAuditSideGroup
+  ) {
+    if (sideGroup.candidates.length !== 1) {
+      setFeedback("A reatribuição exige exatamente um destino confirmado.");
+      return;
+    }
+
+    const target = sideGroup.candidates[0]!;
+    const confirmed = window.confirm(
+      `Reatribuir ${sideGroup.count} evento(s) de ${group.displayName} (${formatAuditSide(sideGroup.side)}) para ${target.name} e recalcular o validador?`
+    );
+    if (!confirmed) return;
+
+    const loadingKey = `audit-events:${group.normalizedName}:${sideGroup.side}`;
+
+    try {
+      setValidatorActionLoadingKey(loadingKey);
+
+      const result = await linkUnresolvedEventsToPlayer({
+        normalizedPlayerName: group.normalizedName,
+        side: sideGroup.side,
+        playerId: target.id,
+      });
+
+      await recarregarJogadores();
+      setFeedback(
+        `${formatNumber(result.updatedEvents)} evento(s) reatribuído(s) para ${target.name}. Rankings e Validador Oficial recalculados.`
+      );
+    } catch (error: unknown) {
+      const message = formatSupabaseError(
+        error,
+        "Erro ao reatribuir eventos da auditoria."
+      );
+      setFeedback(message);
+    } finally {
+      setValidatorActionLoadingKey(null);
+    }
   }
 
   async function abrirExclusao(playerId: string) {
@@ -1840,6 +2263,11 @@ export default function PlayerList({
                               }
 
                               await recarregarJogadores();
+                              setFeedback((current) =>
+                                current
+                                  ? `${current} Rankings e Validador Oficial recalculados.`
+                                  : "Alias reatribuído. Rankings e Validador Oficial recalculados."
+                              );
                             } catch (error: unknown) {
                               const message = formatSupabaseError(
                                 error,
@@ -1936,7 +2364,20 @@ export default function PlayerList({
           ))}
         </div>
 
-        <OfficialRankingValidatorBlock summary={officialRankingValidator} />
+        <OfficialRankingValidatorBlock
+          summary={officialRankingValidator}
+          playerList={playerList}
+          selectedTargetByRowKey={validatorTargetByRowKey}
+          actionLoadingKey={validatorActionLoadingKey}
+          onSelectTarget={(rowKey, playerId) =>
+            setValidatorTargetByRowKey((current) => ({
+              ...current,
+              [rowKey]: playerId,
+            }))
+          }
+          onAddOfficialAliases={handleAddOfficialAliases}
+          onLinkConfirmedEvents={handleLinkConfirmedEvents}
+        />
         <ReconciliationSummaryBlock summary={reconciliation} />
         <ImportCoverageSummaryBlock summary={importCoverage} />
 
@@ -2040,9 +2481,25 @@ export default function PlayerList({
                                 </p>
                               )}
 
-                              <p className="mt-3 rounded-lg border border-blue-800 bg-blue-950/25 px-3 py-2 text-xs font-semibold text-blue-100">
-                                Vinculação em lote será liberada após validação desta auditoria.
-                              </p>
+                              {sideGroup.candidates.length === 1 ? (
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    handleLinkUnlinkedAuditGroup(group, sideGroup)
+                                  }
+                                  disabled={validatorActionLoadingKey !== null}
+                                  className="mt-3 w-full rounded-lg bg-blue-700 px-3 py-3 text-xs font-bold text-white transition hover:bg-blue-600 disabled:opacity-50"
+                                >
+                                  {validatorActionLoadingKey ===
+                                  `audit-events:${group.normalizedName}:${sideGroup.side}`
+                                    ? "Reatribuindo..."
+                                    : "Reatribuir eventos após confirmação"}
+                                </button>
+                              ) : (
+                                <p className="mt-3 rounded-lg border border-yellow-800 bg-yellow-950/25 px-3 py-2 text-xs font-semibold text-yellow-100">
+                                  Resolva manualmente: a reatribuição exige exatamente um destino confirmado.
+                                </p>
+                              )}
                             </div>
                           );
                         })}

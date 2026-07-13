@@ -31,6 +31,11 @@ type LinkableEventRecord = {
   side: string | null;
 };
 
+type LinkTargetPlayer = {
+  id: string;
+  side: string;
+};
+
 const LINK_EVENTS_BATCH_SIZE = 200;
 
 function getEventIdBatches(ids: string[]) {
@@ -60,13 +65,22 @@ export async function linkUnresolvedEventsToPlayer({
 
   const { data: player, error: playerError } = await supabase
     .from("players")
-    .select("id")
+    .select("id, side")
     .eq("id", playerId)
     .maybeSingle();
 
   if (playerError) throw playerError;
   if (!player) {
     throw new Error("Jogador selecionado não foi encontrado.");
+  }
+
+  const targetPlayer = player as LinkTargetPlayer;
+
+  if (
+    (side === "PEDRO" || side === "NETU") &&
+    targetPlayer.side !== side
+  ) {
+    throw new Error("O jogador confirmado nÃ£o pertence ao lado destes eventos.");
   }
 
   let query = supabase

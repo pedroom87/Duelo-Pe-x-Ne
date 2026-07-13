@@ -1,5 +1,9 @@
 # Changelog
 
+- v0.9.4 — Resolução Manual da Curadoria
+
+- v0.9.3 — Curadoria de Identidades
+
 - v0.9.2 — Validador dos Rankings
 
 - v0.9.1 — Cobertura da Importação

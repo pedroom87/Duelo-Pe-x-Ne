@@ -202,6 +202,34 @@ export type HistoricalImportCoverageSummary = {
 
 export type OfficialRankingValidationStatus = "OK" | "Divergente";
 
+export type OfficialRankingValidatorHistoricalEvent = {
+  matchNumber: number;
+  seq: number;
+  playerNameRaw: string;
+  eventType: string;
+  side: string;
+  sourceCell: string | null;
+};
+
+export type OfficialRankingValidatorDatabaseEvent = {
+  id: string;
+  matchNumber: number | null;
+  seq: number | null;
+  playerNameRaw: string;
+  eventType: string;
+  side: string;
+  sourceCell: string | null;
+  playerId: string | null;
+  resolvedPlayerId: string | null;
+};
+
+export type OfficialRankingValidatorAlias = {
+  alias: string;
+  normalizedAlias: string;
+  playerId: string | null;
+  source: "Cadastro" | "Grupo oficial";
+};
+
 export type OfficialRankingValidatorRow = {
   key: string;
   playerId: string | null;
@@ -213,6 +241,11 @@ export type OfficialRankingValidatorRow = {
   status: OfficialRankingValidationStatus;
   rawHistoricalNames: string[];
   matchedPlayers: DataHealthPlayerSummary[];
+  aliases: OfficialRankingValidatorAlias[];
+  historicalEvents: OfficialRankingValidatorHistoricalEvent[];
+  databaseEvents: OfficialRankingValidatorDatabaseEvent[];
+  matchNumbers: number[];
+  eventCount: number;
   isFeatured: boolean;
 };
 
@@ -281,6 +314,7 @@ type RankingAuditEvent = {
   id: string;
   match_id: string | null;
   match_number: number | null;
+  seq: number | null;
   player_id: string | null;
   player_name_raw: string | null;
   side: string | null;
@@ -318,6 +352,7 @@ type HistoricalImportData = {
 };
 
 type ExpectedHistoricalEvent = {
+  seq: number;
   playerNameRaw: string;
   normalizedName: string;
   eventType: string;
@@ -647,6 +682,7 @@ function getExpectedHistoricalEvents(): ExpectedHistoricalEvent[] {
       const playerNameRaw = event.playerNameRaw.trim() || "Jogador sem nome";
 
       return {
+        seq: event.seq,
         playerNameRaw,
         normalizedName: normalizeText(playerNameRaw) || "sem-nome",
         eventType: event.eventType || "SEM_TIPO",
@@ -875,6 +911,7 @@ type OfficialRankingValidatorIdentityIndex = {
 type OfficialRankingValidatorResolution = {
   key: string;
   playerId: string | null;
+  resolvedPlayerId?: string | null;
   playerName: string;
   side: string;
   matchedPlayers: DataHealthPlayerSummary[];
@@ -887,9 +924,17 @@ type OfficialRankingValidatorDraft = Omit<
   | "status"
   | "rawHistoricalNames"
   | "matchedPlayers"
+  | "aliases"
+  | "historicalEvents"
+  | "databaseEvents"
+  | "matchNumbers"
+  | "eventCount"
 > & {
   rawHistoricalNames: Set<string>;
   matchedPlayers: Map<string, DataHealthPlayerSummary>;
+  historicalEvents: OfficialRankingValidatorHistoricalEvent[];
+  databaseEvents: OfficialRankingValidatorDatabaseEvent[];
+  matchNumbers: Set<number>;
 };
 
 function normalizeOfficialValidatorAlias(value: string) {
@@ -950,6 +995,83 @@ function getOfficialValidatorGroupByKey(key: string) {
   return (
     OFFICIAL_RANKING_VALIDATOR_GROUPS.find((group) => group.key === key) ?? null
   );
+}
+
+function toOfficialValidatorHistoricalEvent(
+  event: ExpectedHistoricalEvent
+): OfficialRankingValidatorHistoricalEvent {
+  return {
+    matchNumber: event.matchNumber,
+    seq: event.seq,
+    playerNameRaw: event.playerNameRaw,
+    eventType: event.eventType,
+    side: event.side,
+    sourceCell: event.sourceCell,
+  };
+}
+
+function toOfficialValidatorDatabaseEvent(
+  event: RankingAuditEvent,
+  resolvedPlayerId: string | null
+): OfficialRankingValidatorDatabaseEvent {
+  return {
+    id: event.id,
+    matchNumber: event.match_number,
+    seq: event.seq,
+    playerNameRaw: event.player_name_raw?.trim() || "Jogador sem nome",
+    eventType: event.event_type || "SEM_TIPO",
+    side: event.side || "SEM_LADO",
+    sourceCell: event.source_cell,
+    playerId: event.player_id,
+    resolvedPlayerId,
+  };
+}
+
+function getOfficialValidatorAliasKey(alias: OfficialRankingValidatorAlias) {
+  return `${alias.source}:${alias.playerId ?? "-"}:${alias.normalizedAlias}`;
+}
+
+function buildOfficialValidatorAliases(params: {
+  rowKey: string;
+  matchedPlayers: DataHealthPlayerSummary[];
+  aliases: PlayerAlias[];
+}): OfficialRankingValidatorAlias[] {
+  const { rowKey, matchedPlayers, aliases } = params;
+  const byKey = new Map<string, OfficialRankingValidatorAlias>();
+  const group = getOfficialValidatorGroupByKey(rowKey);
+
+  function addAlias(alias: OfficialRankingValidatorAlias) {
+    byKey.set(getOfficialValidatorAliasKey(alias), alias);
+  }
+
+  if (group) {
+    group.aliases.forEach((alias) => {
+      addAlias({
+        alias,
+        normalizedAlias: normalizeText(alias),
+        playerId: null,
+        source: "Grupo oficial",
+      });
+    });
+  }
+
+  const matchedPlayerIds = new Set(matchedPlayers.map((player) => player.id));
+
+  aliases.forEach((alias) => {
+    if (!matchedPlayerIds.has(alias.player_id)) return;
+
+    addAlias({
+      alias: alias.alias,
+      normalizedAlias: getNormalizedAlias(alias),
+      playerId: alias.player_id,
+      source: "Cadastro",
+    });
+  });
+
+  return Array.from(byKey.values()).sort((a, b) => {
+    if (a.source !== b.source) return a.source.localeCompare(b.source);
+    return a.alias.localeCompare(b.alias);
+  });
 }
 
 function buildOfficialRankingValidatorIdentityIndex(
@@ -1113,13 +1235,19 @@ function resolveDatabaseOfficialValidatorIdentity(params: {
     });
 
   if (group) {
-    return resolveOfficialValidatorGroup({ group, identityIndex });
+    return {
+      ...resolveOfficialValidatorGroup({ group, identityIndex }),
+      resolvedPlayerId,
+    };
   }
 
   if (resolvedPlayerId) {
     const player = rankingIndex.playersById.get(resolvedPlayerId);
     if (player) {
-      return resolveOfficialValidatorPlayer(playerToSummary(player));
+      return {
+        ...resolveOfficialValidatorPlayer(playerToSummary(player)),
+        resolvedPlayerId,
+      };
     }
   }
 
@@ -1149,6 +1277,9 @@ function getOfficialValidatorDraft(
     isFeatured: resolution.isFeatured,
     rawHistoricalNames: new Set<string>(),
     matchedPlayers: new Map<string, DataHealthPlayerSummary>(),
+    historicalEvents: [],
+    databaseEvents: [],
+    matchNumbers: new Set<number>(),
   };
 
   resolution.matchedPlayers.forEach((player) => {
@@ -1215,6 +1346,8 @@ function buildOfficialRankingValidatorSummary(params: {
     mergeOfficialValidatorResolution(draft, resolution);
     draft.historicalGoals += 1;
     draft.rawHistoricalNames.add(event.playerNameRaw);
+    draft.historicalEvents.push(toOfficialValidatorHistoricalEvent(event));
+    draft.matchNumbers.add(event.matchNumber);
   });
 
   events.forEach((event) => {
@@ -1229,11 +1362,34 @@ function buildOfficialRankingValidatorSummary(params: {
 
     mergeOfficialValidatorResolution(draft, resolution);
     draft.siteGoals += 1;
+    draft.databaseEvents.push(
+      toOfficialValidatorDatabaseEvent(
+        event,
+        resolution.resolvedPlayerId ?? resolution.playerId
+      )
+    );
+    if (event.match_number !== null) {
+      draft.matchNumbers.add(event.match_number);
+    }
   });
 
   const rows = Array.from(drafts.values())
     .map((draft) => {
       const difference = draft.historicalGoals - draft.siteGoals;
+      const matchedPlayers = uniquePlayerSummaries(
+        Array.from(draft.matchedPlayers.values())
+      );
+      const historicalEvents = [...draft.historicalEvents].sort((a, b) => {
+        if (a.matchNumber !== b.matchNumber) return a.matchNumber - b.matchNumber;
+        return a.seq - b.seq;
+      });
+      const databaseEvents = [...draft.databaseEvents].sort((a, b) => {
+        const aMatch = a.matchNumber ?? 0;
+        const bMatch = b.matchNumber ?? 0;
+
+        if (aMatch !== bMatch) return aMatch - bMatch;
+        return (a.seq ?? 0) - (b.seq ?? 0);
+      });
 
       return {
         key: draft.key,
@@ -1247,9 +1403,16 @@ function buildOfficialRankingValidatorSummary(params: {
         rawHistoricalNames: Array.from(draft.rawHistoricalNames).sort((a, b) =>
           a.localeCompare(b)
         ),
-        matchedPlayers: uniquePlayerSummaries(
-          Array.from(draft.matchedPlayers.values())
-        ),
+        matchedPlayers,
+        aliases: buildOfficialValidatorAliases({
+          rowKey: draft.key,
+          matchedPlayers,
+          aliases,
+        }),
+        historicalEvents,
+        databaseEvents,
+        matchNumbers: Array.from(draft.matchNumbers).sort((a, b) => a - b),
+        eventCount: historicalEvents.length + databaseEvents.length,
         isFeatured: draft.isFeatured,
       } satisfies OfficialRankingValidatorRow;
     })
@@ -1501,7 +1664,7 @@ async function getAllRankingAuditEvents(): Promise<RankingAuditEvent[]> {
   while (true) {
     const { data, error } = await supabase
       .from("events")
-      .select("id, match_id, match_number, player_id, player_name_raw, side, event_type, source_cell")
+      .select("id, match_id, match_number, seq, player_id, player_name_raw, side, event_type, source_cell")
       .order("match_number", { ascending: true })
       .order("seq", { ascending: true })
       .range(from, from + AUDIT_EVENT_PAGE_SIZE - 1);

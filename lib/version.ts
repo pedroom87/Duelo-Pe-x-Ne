@@ -9,16 +9,16 @@ export type VersionInfo = {
 };
 
 /**
- * Valores desta Sprint (Duel Legacy / 0.9.2)
+ * Valores desta Sprint (Duel Legacy / 0.9.4)
  */
-const VERSION_NUMBER = "0.9.2";
-const VERSION_CODENAME = "Validador dos Rankings";
-const VERSION_RELEASED_AT = "2026-07-04";
+const VERSION_NUMBER = "0.9.4";
+const VERSION_CODENAME = "Resolucao Manual da Curadoria";
+const VERSION_RELEASED_AT = "2026-07-13";
 const VERSION_COMMIT = null;
 const VERSION_HIGHLIGHTS = [
-  "Comparação entre planilha histórica e rankings do site",
-  "Detecção de divergências por jogador",
-  "Base para validação oficial dos rankings",
+  "Divergencias da curadoria com acoes somente apos confirmacao",
+  "Adicao e reatribuicao manual de aliases",
+  "Reatribuicao de eventos com destino confirmado e recalculo imediato",
 ];
 
 function getCommitFromEnv() {
