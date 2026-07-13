@@ -9,16 +9,16 @@ export type VersionInfo = {
 };
 
 /**
- * Valores desta Sprint (Duel Legacy / 0.9.5)
+ * Valores desta Sprint (Duel Legacy / 0.9.5.1)
  */
-const VERSION_NUMBER = "0.9.5";
-const VERSION_CODENAME = "Divergencias de Identidade";
+const VERSION_NUMBER = "0.9.5.1";
+const VERSION_CODENAME = "Divergencias Sem Acao Segura";
 const VERSION_RELEASED_AT = "2026-07-13";
 const VERSION_COMMIT = null;
 const VERSION_HIGHLIGHTS = [
-  "Resolver divergencia com pre-visualizacao antes de aplicar",
-  "Preview de aliases, eventos, origem, destino e rankings afetados",
-  "Historico em memoria das resolucoes manuais da sessao",
+  "Explicacao visivel para divergencias sem correcao segura",
+  "Eventos excedentes listados em modo somente leitura",
+  "Aplicar permanece desabilitado quando nao ha mutacao real",
 ];
 
 function getCommitFromEnv() {

@@ -1,5 +1,7 @@
 # Changelog
 
+- v0.9.5.1 — Divergências sem Ação Executável
+
 - v0.9.5 — Divergências de Identidade
 
 - v0.9.4 — Resolução Manual da Curadoria

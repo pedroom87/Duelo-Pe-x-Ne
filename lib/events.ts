@@ -30,6 +30,16 @@ export type ReassignEventsToPlayerResult = {
   targetPlayerId: string;
 };
 
+export type EventReviewDetail = {
+  id: string;
+  eventType: string;
+  matchNumber: number | null;
+  playerNameRaw: string;
+  sourceCell: string | null;
+  side: string;
+  matchVerified: boolean;
+};
+
 type LinkableEventRecord = {
   id: string;
   player_id: string | null;
@@ -45,6 +55,22 @@ type LinkTargetPlayer = {
 type ReassignEventRecord = {
   id: string;
   side: string | null;
+};
+
+type EventReviewRecord = {
+  id: string;
+  match_id: string | null;
+  match_number: number | null;
+  event_type: string | null;
+  player_name_raw: string | null;
+  source_cell: string | null;
+  side: string | null;
+};
+
+type EventReviewMatchRecord = {
+  id: string;
+  match_number: number | null;
+  verified: boolean | null;
 };
 
 const LINK_EVENTS_BATCH_SIZE = 200;
@@ -135,6 +161,94 @@ export async function reassignEventsToPlayer(params: {
     eventIds,
     targetPlayerId,
   };
+}
+
+export async function getEventReviewDetails(
+  eventIds: string[]
+): Promise<EventReviewDetail[]> {
+  const ids = Array.from(new Set(eventIds.filter(Boolean)));
+
+  if (ids.length === 0) return [];
+
+  const { data: events, error: eventsError } = await supabase
+    .from("events")
+    .select("id, match_id, match_number, event_type, player_name_raw, source_cell, side")
+    .in("id", ids);
+
+  if (eventsError) throw eventsError;
+
+  const eventList = (events ?? []) as EventReviewRecord[];
+  const matchIds = Array.from(
+    new Set(eventList.map((event) => event.match_id).filter((id): id is string => Boolean(id)))
+  );
+  const matchNumbers = Array.from(
+    new Set(
+      eventList
+        .map((event) => event.match_number)
+        .filter((matchNumber): matchNumber is number => matchNumber !== null)
+    )
+  );
+
+  const matchesById = new Map<string, EventReviewMatchRecord>();
+  const matchesByNumber = new Map<number, EventReviewMatchRecord>();
+
+  if (matchIds.length > 0) {
+    const { data: matches, error: matchesError } = await supabase
+      .from("matches")
+      .select("id, match_number, verified")
+      .in("id", matchIds);
+
+    if (matchesError) throw matchesError;
+
+    ((matches ?? []) as EventReviewMatchRecord[]).forEach((match) => {
+      matchesById.set(match.id, match);
+      if (match.match_number !== null) matchesByNumber.set(match.match_number, match);
+    });
+  }
+
+  if (matchNumbers.length > 0) {
+    const missingMatchNumbers = matchNumbers.filter(
+      (matchNumber) => !matchesByNumber.has(matchNumber)
+    );
+
+    if (missingMatchNumbers.length > 0) {
+      const { data: matches, error: matchesError } = await supabase
+        .from("matches")
+        .select("id, match_number, verified")
+        .in("match_number", missingMatchNumbers);
+
+      if (matchesError) throw matchesError;
+
+      ((matches ?? []) as EventReviewMatchRecord[]).forEach((match) => {
+        matchesById.set(match.id, match);
+        if (match.match_number !== null) matchesByNumber.set(match.match_number, match);
+      });
+    }
+  }
+
+  return eventList
+    .map((event) => {
+      const match =
+        (event.match_id ? matchesById.get(event.match_id) : null) ??
+        (event.match_number !== null ? matchesByNumber.get(event.match_number) : null);
+
+      return {
+        id: event.id,
+        eventType: event.event_type || "SEM_TIPO",
+        matchNumber: event.match_number,
+        playerNameRaw: event.player_name_raw?.trim() || "Jogador sem nome",
+        sourceCell: event.source_cell,
+        side: event.side || "SEM_LADO",
+        matchVerified: Boolean(match?.verified),
+      };
+    })
+    .sort((a, b) => {
+      const aMatch = a.matchNumber ?? 0;
+      const bMatch = b.matchNumber ?? 0;
+
+      if (aMatch !== bMatch) return aMatch - bMatch;
+      return a.playerNameRaw.localeCompare(b.playerNameRaw);
+    });
 }
 
 export async function linkUnresolvedEventsToPlayer({

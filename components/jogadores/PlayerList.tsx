@@ -23,8 +23,10 @@ import {
   reassignAliasOwner,
 } from "@/lib/playerAliases";
 import {
+  getEventReviewDetails,
   linkUnresolvedEventsToPlayer,
   reassignEventsToPlayer,
+  type EventReviewDetail,
 } from "@/lib/events";
 import { normalizeText } from "@/lib/playerIdentity";
 import { formatSupabaseError } from "@/lib/supabaseErrors";
@@ -82,6 +84,9 @@ type IdentityResolutionPreview = {
   eventsToMove: IdentityResolutionPreviewEvent[];
   sourcePlayers: string[];
   affectedRankings: string[];
+  reviewOnlyEvents: EventReviewDetail[];
+  hasExecutableAction: boolean;
+  manualReviewReason: string | null;
   historicalGoals: number;
   siteGoals: number;
   difference: number;
@@ -142,6 +147,10 @@ function playerHasStrongDuplicateSignal(params: {
 
 function formatNumber(value: number) {
   return value.toLocaleString("pt-BR");
+}
+
+function formatEventCountLabel(value: number) {
+  return `${formatNumber(value)} ${value === 1 ? "evento" : "eventos"}`;
 }
 
 function formatSignedNumber(value: number) {
@@ -772,7 +781,7 @@ type OfficialRankingValidatorBlockProps = {
   onPrepareResolution: (
     row: OfficialRankingValidatorRow,
     targetPlayerId: string
-  ) => void;
+  ) => Promise<void>;
 };
 
 function OfficialRankingValidatorEventList({
@@ -1700,10 +1709,10 @@ export default function PlayerList({
     }
   }
 
-  function buildIdentityResolutionPreview(
+  async function buildIdentityResolutionPreview(
     row: OfficialRankingValidatorRow,
     targetPlayerId: string
-  ): IdentityResolutionPreview | null {
+  ): Promise<IdentityResolutionPreview | null> {
     const target = playerList.find((player) => player.id === targetPlayerId);
     if (!target) return null;
 
@@ -1779,6 +1788,23 @@ export default function PlayerList({
         "Validador Oficial",
       ])
     );
+    const hasExecutableAction =
+      aliasesToCreateByKey.size > 0 || eventsToMove.length > 0;
+    const linkedEventIds = row.databaseEvents
+      .filter((event) => event.playerId === target.id)
+      .map((event) => event.id);
+    const reviewOnlyEvents =
+      !hasExecutableAction && row.difference < 0
+        ? await getEventReviewDetails(linkedEventIds)
+        : [];
+    const manualReviewReason =
+      !hasExecutableAction && row.difference < 0
+        ? `Esta divergência não possui uma correção segura automática. O site tem ${formatEventCountLabel(
+            Math.abs(row.difference)
+          )} a mais que o histórico.`
+        : !hasExecutableAction
+          ? "Esta divergência não possui uma alteração real e segura para aplicar."
+          : null;
 
     return {
       rowKey: row.key,
@@ -1794,32 +1820,48 @@ export default function PlayerList({
         new Set(eventsToMove.map((event) => event.sourcePlayerLabel))
       ),
       affectedRankings,
+      reviewOnlyEvents,
+      hasExecutableAction,
+      manualReviewReason,
       historicalGoals: row.historicalGoals,
       siteGoals: row.siteGoals,
       difference: row.difference,
     };
   }
 
-  function handlePrepareIdentityResolution(
+  async function handlePrepareIdentityResolution(
     row: OfficialRankingValidatorRow,
     targetPlayerId: string
   ) {
-    const preview = buildIdentityResolutionPreview(row, targetPlayerId);
+    try {
+      setValidatorActionLoadingKey(`resolve:${row.key}`);
+      const preview = await buildIdentityResolutionPreview(row, targetPlayerId);
 
-    if (!preview) {
-      setFeedback("Selecione um destino valido para resolver a divergencia.");
-      return;
+      if (!preview) {
+        setFeedback("Selecione um destino valido para resolver a divergencia.");
+        return;
+      }
+
+      setIdentityResolutionPreview(preview);
+      setIdentityResolutionConfirmed(false);
+      setFeedback(null);
+    } catch (error: unknown) {
+      const message = formatSupabaseError(
+        error,
+        "Erro ao preparar a revisao da divergencia."
+      );
+      setFeedback(message);
+    } finally {
+      setValidatorActionLoadingKey(null);
     }
-
-    setIdentityResolutionPreview(preview);
-    setIdentityResolutionConfirmed(false);
-    setFeedback(null);
   }
 
   async function applyIdentityResolution() {
     if (!identityResolutionPreview || !identityResolutionConfirmed) return;
 
     const preview = identityResolutionPreview;
+    if (!preview.hasExecutableAction) return;
+
     const loadingKey = `resolve:${preview.rowKey}`;
 
     try {
@@ -2997,6 +3039,12 @@ export default function PlayerList({
               </div>
             </div>
 
+            {identityResolutionPreview.manualReviewReason ? (
+              <p className="mt-4 rounded-xl border border-yellow-800 bg-yellow-950/25 px-4 py-3 text-sm font-semibold text-yellow-100">
+                {identityResolutionPreview.manualReviewReason}
+              </p>
+            ) : null}
+
             <div className="mt-4 grid gap-3 lg:grid-cols-2">
               <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-3">
                 <p className="text-sm font-black text-zinc-100">
@@ -3068,17 +3116,64 @@ export default function PlayerList({
               )}
             </div>
 
-            <label className="mt-5 flex cursor-pointer items-start gap-3 rounded-xl border border-yellow-800 bg-yellow-950/25 p-3 text-sm text-yellow-100">
-              <input
-                type="checkbox"
-                checked={identityResolutionConfirmed}
-                onChange={(event) =>
-                  setIdentityResolutionConfirmed(event.target.checked)
-                }
-                className="mt-1 h-4 w-4 accent-yellow-500"
-              />
-              Confirmo explicitamente esta resolução manual.
-            </label>
+            {identityResolutionPreview.reviewOnlyEvents.length > 0 ? (
+              <div className="mt-4 rounded-xl border border-yellow-800 bg-yellow-950/15 p-3">
+                <p className="text-sm font-black text-yellow-100">
+                  Eventos vinculados para revisão manual
+                </p>
+                <div className="mt-3 max-h-64 space-y-2 overflow-y-auto pr-1">
+                  {identityResolutionPreview.reviewOnlyEvents.map((event) => (
+                    <div
+                      key={event.id}
+                      className="rounded-lg border border-yellow-900/70 bg-zinc-950 px-3 py-2 text-xs text-zinc-300"
+                    >
+                      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                        <div>
+                          <p className="font-bold text-zinc-100">
+                            player_name_raw: {event.playerNameRaw}
+                          </p>
+                          <p className="mt-1 text-zinc-500">
+                            event_type: {event.eventType} · partida:{" "}
+                            {formatMatchNumber(event.matchNumber)}
+                          </p>
+                          <p className="mt-1 text-zinc-500">
+                            source_cell: {formatSourceCell(event.sourceCell)} · side:{" "}
+                            {formatAuditSide(event.side)}
+                          </p>
+                        </div>
+                        <span
+                          className={`shrink-0 rounded-full border px-2 py-1 font-bold ${
+                            event.matchVerified
+                              ? "border-emerald-700 bg-emerald-950/30 text-emerald-200"
+                              : "border-yellow-700 bg-yellow-950/30 text-yellow-200"
+                          }`}
+                        >
+                          {event.matchVerified ? "Partida conferida" : "Não conferida"}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+
+            {identityResolutionPreview.hasExecutableAction ? (
+              <label className="mt-5 flex cursor-pointer items-start gap-3 rounded-xl border border-yellow-800 bg-yellow-950/25 p-3 text-sm text-yellow-100">
+                <input
+                  type="checkbox"
+                  checked={identityResolutionConfirmed}
+                  onChange={(event) =>
+                    setIdentityResolutionConfirmed(event.target.checked)
+                  }
+                  className="mt-1 h-4 w-4 accent-yellow-500"
+                />
+                Confirmo explicitamente esta resolução manual.
+              </label>
+            ) : (
+              <p className="mt-5 rounded-xl border border-yellow-800 bg-yellow-950/25 px-4 py-3 text-sm font-bold text-yellow-100">
+                Revisão manual necessária.
+              </p>
+            )}
 
             <div className="mt-5 flex flex-col gap-2 sm:flex-row">
               <button
@@ -3097,6 +3192,7 @@ export default function PlayerList({
                 type="button"
                 onClick={applyIdentityResolution}
                 disabled={
+                  !identityResolutionPreview.hasExecutableAction ||
                   !identityResolutionConfirmed ||
                   validatorActionLoadingKey !== null ||
                   (identityResolutionPreview.aliasesToCreate.length === 0 &&
@@ -3107,7 +3203,9 @@ export default function PlayerList({
                 {validatorActionLoadingKey ===
                 `resolve:${identityResolutionPreview.rowKey}`
                   ? "Aplicando..."
-                  : "Aplicar"}
+                  : identityResolutionPreview.hasExecutableAction
+                    ? "Aplicar"
+                    : "Revisão manual necessária"}
               </button>
             </div>
           </div>
