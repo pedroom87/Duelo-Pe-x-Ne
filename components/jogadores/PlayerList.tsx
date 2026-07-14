@@ -987,9 +987,15 @@ function HistoricalEquivalentReviewBlock({
 function getOfficialValidatorStatusClasses(
   status: OfficialRankingValidatorRow["status"]
 ) {
-  return status === "OK"
-    ? "border-emerald-700 bg-emerald-950/35 text-emerald-200"
-    : "border-red-700 bg-red-950/35 text-red-200";
+  if (status === "OK") {
+    return "border-emerald-700 bg-emerald-950/35 text-emerald-200";
+  }
+
+  if (status === "Somente posterior") {
+    return "border-blue-700 bg-blue-950/35 text-blue-200";
+  }
+
+  return "border-red-700 bg-red-950/35 text-red-200";
 }
 
 function getOfficialValidatorDifferenceClasses(difference: number) {
@@ -1319,12 +1325,28 @@ function OfficialRankingValidatorBlock({
 }: OfficialRankingValidatorBlockProps) {
   const cards = [
     {
+      label: "Cobertura ate",
+      value:
+        summary.historicalCoverageMaxMatchNumber === null
+          ? "-"
+          : `#${formatNumber(summary.historicalCoverageMaxMatchNumber)}`,
+    },
+    {
       label: "Gols no histórico",
       value: formatNumber(summary.totalHistoricalGoals),
     },
     {
-      label: "Gols no site/banco",
-      value: formatNumber(summary.totalSiteGoals),
+      label: "Site na cobertura",
+      value: formatNumber(summary.totalSiteGoalsWithinCoverage),
+      description: `${formatNumber(summary.totalSiteGoals)} gol(s) no site ao todo`,
+    },
+    {
+      label: "Posteriores",
+      value: formatNumber(summary.postCoverageSiteGoals),
+    },
+    {
+      label: "Sem match_number",
+      value: formatNumber(summary.unreliableMatchNumberSiteGoals),
     },
     {
       label: "Jogadores comparados",
@@ -1333,6 +1355,7 @@ function OfficialRankingValidatorBlock({
     {
       label: "Divergentes",
       value: formatNumber(summary.divergentPlayersCount),
+      description: `${formatNumber(summary.postCoverageOnlyPlayersCount)} somente posterior`,
     },
   ];
 
@@ -1402,7 +1425,7 @@ function OfficialRankingValidatorBlock({
                   </p>
                 </div>
 
-                <div className="grid grid-cols-3 gap-2 text-right text-xs sm:min-w-[260px]">
+                <div className="grid grid-cols-5 gap-2 text-right text-xs sm:min-w-[430px]">
                   <div>
                     <p className="text-zinc-500">Histórico</p>
                     <p className="font-black text-zinc-100">
@@ -1410,13 +1433,19 @@ function OfficialRankingValidatorBlock({
                     </p>
                   </div>
                   <div>
-                    <p className="text-zinc-500">Site</p>
+                    <p className="text-zinc-500">Site cob.</p>
                     <p className="font-black text-zinc-100">
                       {formatNumber(row.siteGoals)}
                     </p>
                   </div>
                   <div>
-                    <p className="text-zinc-500">Dif.</p>
+                    <p className="text-zinc-500">Posteriores</p>
+                    <p className="font-black text-blue-200">
+                      {formatNumber(row.postCoverageGoals)}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-zinc-500">Dif. hom.</p>
                     <p
                       className={`font-black ${getOfficialValidatorDifferenceClasses(
                         row.difference
@@ -1424,6 +1453,10 @@ function OfficialRankingValidatorBlock({
                     >
                       {formatSignedNumber(row.difference)}
                     </p>
+                  </div>
+                  <div>
+                    <p className="text-zinc-500">Status</p>
+                    <p className="font-black text-zinc-100">{row.status}</p>
                   </div>
                 </div>
               </summary>
@@ -2662,6 +2695,18 @@ export default function PlayerList({
       href: `#${OFFICIAL_VALIDATOR_SECTION_ID}`,
       counterLabel: "divergentes",
       counter: formatNumber(officialRankingValidator.divergentPlayersCount),
+      details: [
+        {
+          label: "posteriores",
+          value: formatNumber(officialRankingValidator.postCoverageSiteGoals),
+        },
+        {
+          label: "somente posterior",
+          value: formatNumber(
+            officialRankingValidator.postCoverageOnlyPlayersCount
+          ),
+        },
+      ],
     },
     {
       title: "Curadoria de Identidades",

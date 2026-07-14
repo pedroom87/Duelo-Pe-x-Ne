@@ -230,7 +230,10 @@ export type HistoricalEquivalentReviewSummary = {
   events: HistoricalEquivalentReviewEvent[];
 };
 
-export type OfficialRankingValidationStatus = "OK" | "Divergente";
+export type OfficialRankingValidationStatus =
+  | "OK"
+  | "Divergente"
+  | "Somente posterior";
 
 export type OfficialRankingValidatorHistoricalEvent = {
   investigationId: string;
@@ -297,6 +300,9 @@ export type OfficialRankingValidatorRow = {
   side: string;
   historicalGoals: number;
   siteGoals: number;
+  totalSiteGoals: number;
+  postCoverageGoals: number;
+  unreliableMatchNumberGoals: number;
   difference: number;
   status: OfficialRankingValidationStatus;
   rawHistoricalNames: string[];
@@ -313,10 +319,15 @@ export type OfficialRankingValidatorRow = {
 
 export type OfficialRankingValidatorSummary = {
   sourceAvailable: boolean;
+  historicalCoverageMaxMatchNumber: number | null;
   totalHistoricalGoals: number;
   totalSiteGoals: number;
+  totalSiteGoalsWithinCoverage: number;
+  postCoverageSiteGoals: number;
+  unreliableMatchNumberSiteGoals: number;
   comparedPlayersCount: number;
   divergentPlayersCount: number;
+  postCoverageOnlyPlayersCount: number;
   okPlayersCount: number;
   rows: OfficialRankingValidatorRow[];
 };
@@ -1062,6 +1073,12 @@ function getOfficialValidatorGroupForName(params: {
   );
 }
 
+function getHistoricalCoverageMaxMatchNumber() {
+  if (HISTORICAL_IMPORT.matches.length === 0) return null;
+
+  return Math.max(...HISTORICAL_IMPORT.matches.map((match) => match.matchNumber));
+}
+
 function getOfficialValidatorGroupByKey(key: string) {
   return (
     OFFICIAL_RANKING_VALIDATOR_GROUPS.find((group) => group.key === key) ?? null
@@ -1351,6 +1368,9 @@ function getOfficialValidatorDraft(
     side: resolution.side,
     historicalGoals: 0,
     siteGoals: 0,
+    totalSiteGoals: 0,
+    postCoverageGoals: 0,
+    unreliableMatchNumberGoals: 0,
     isFeatured: resolution.isFeatured,
     rawHistoricalNames: new Set<string>(),
     matchedPlayers: new Map<string, DataHealthPlayerSummary>(),
@@ -1387,6 +1407,14 @@ function mergeOfficialValidatorResolution(
 
 function getOfficialValidatorFeatureOrder(row: OfficialRankingValidatorRow) {
   return OFFICIAL_RANKING_VALIDATOR_FEATURE_ORDER.get(row.key) ?? 999;
+}
+
+function getOfficialValidatorStatusOrder(
+  status: OfficialRankingValidationStatus
+) {
+  if (status === "Divergente") return 0;
+  if (status === "Somente posterior") return 1;
+  return 2;
 }
 
 function getOfficialValidatorInvestigationKeys(event: {
@@ -1703,6 +1731,7 @@ function buildOfficialRankingValidatorSummary(params: {
   aliases: PlayerAlias[];
 }): OfficialRankingValidatorSummary {
   const { events, matches, players, aliases } = params;
+  const historicalCoverageMaxMatchNumber = getHistoricalCoverageMaxMatchNumber();
   const expectedGoalEvents = getExpectedHistoricalEvents().filter(
     (event) => event.eventType === "GOL"
   );
@@ -1750,7 +1779,22 @@ function buildOfficialRankingValidatorSummary(params: {
     const draft = getOfficialValidatorDraft(drafts, resolution);
 
     mergeOfficialValidatorResolution(draft, resolution);
-    draft.siteGoals += 1;
+    draft.totalSiteGoals += 1;
+    if (
+      event.match_number !== null &&
+      historicalCoverageMaxMatchNumber !== null &&
+      event.match_number <= historicalCoverageMaxMatchNumber
+    ) {
+      draft.siteGoals += 1;
+    } else if (
+      event.match_number !== null &&
+      historicalCoverageMaxMatchNumber !== null &&
+      event.match_number > historicalCoverageMaxMatchNumber
+    ) {
+      draft.postCoverageGoals += 1;
+    } else {
+      draft.unreliableMatchNumberGoals += 1;
+    }
     const match = getMatchForAuditEvent({
       event,
       matchesById,
@@ -1771,6 +1815,14 @@ function buildOfficialRankingValidatorSummary(params: {
   const rows = Array.from(drafts.values())
     .map((draft) => {
       const difference = draft.historicalGoals - draft.siteGoals;
+      const status: OfficialRankingValidationStatus =
+        difference === 0
+          ? draft.historicalGoals === 0 &&
+            draft.siteGoals === 0 &&
+            draft.postCoverageGoals > 0
+            ? "Somente posterior"
+            : "OK"
+          : "Divergente";
       const matchedPlayers = uniquePlayerSummaries(
         Array.from(draft.matchedPlayers.values())
       );
@@ -1806,8 +1858,11 @@ function buildOfficialRankingValidatorSummary(params: {
         side: draft.side,
         historicalGoals: draft.historicalGoals,
         siteGoals: draft.siteGoals,
+        totalSiteGoals: draft.totalSiteGoals,
+        postCoverageGoals: draft.postCoverageGoals,
+        unreliableMatchNumberGoals: draft.unreliableMatchNumberGoals,
         difference,
-        status: difference === 0 ? "OK" : "Divergente",
+        status,
         rawHistoricalNames: Array.from(draft.rawHistoricalNames).sort((a, b) =>
           a.localeCompare(b)
         ),
@@ -1832,7 +1887,12 @@ function buildOfficialRankingValidatorSummary(params: {
         return getOfficialValidatorFeatureOrder(a) - getOfficialValidatorFeatureOrder(b);
       }
 
-      if (a.status !== b.status) return a.status === "Divergente" ? -1 : 1;
+      if (a.status !== b.status) {
+        return (
+          getOfficialValidatorStatusOrder(a.status) -
+          getOfficialValidatorStatusOrder(b.status)
+        );
+      }
 
       const absoluteDiff = Math.abs(b.difference) - Math.abs(a.difference);
       if (absoluteDiff !== 0) return absoluteDiff;
@@ -1846,14 +1906,36 @@ function buildOfficialRankingValidatorSummary(params: {
   const divergentPlayersCount = rows.filter(
     (row) => row.status === "Divergente"
   ).length;
+  const postCoverageOnlyPlayersCount = rows.filter(
+    (row) => row.status === "Somente posterior"
+  ).length;
+  const totalSiteGoals = rows.reduce((total, row) => total + row.totalSiteGoals, 0);
+  const totalSiteGoalsWithinCoverage = rows.reduce(
+    (total, row) => total + row.siteGoals,
+    0
+  );
+  const postCoverageSiteGoals = rows.reduce(
+    (total, row) => total + row.postCoverageGoals,
+    0
+  );
+  const unreliableMatchNumberSiteGoals = rows.reduce(
+    (total, row) => total + row.unreliableMatchNumberGoals,
+    0
+  );
 
   return {
     sourceAvailable: HISTORICAL_IMPORT.matches.length > 0,
+    historicalCoverageMaxMatchNumber,
     totalHistoricalGoals: expectedGoalEvents.length,
-    totalSiteGoals: events.filter((event) => event.event_type === "GOL").length,
+    totalSiteGoals,
+    totalSiteGoalsWithinCoverage,
+    postCoverageSiteGoals,
+    unreliableMatchNumberSiteGoals,
     comparedPlayersCount: rows.length,
     divergentPlayersCount,
-    okPlayersCount: rows.length - divergentPlayersCount,
+    postCoverageOnlyPlayersCount,
+    okPlayersCount:
+      rows.length - divergentPlayersCount - postCoverageOnlyPlayersCount,
     rows,
   };
 }
