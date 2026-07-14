@@ -1,5 +1,7 @@
 # Changelog
 
+- v0.9.10 - Correcao Guiada
+
 - v0.9.9 - Escopo Temporal
 
 - v0.9.8 - Revisao de Eventos

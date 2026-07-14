@@ -30,6 +30,25 @@ export type ReassignEventsToPlayerResult = {
   targetPlayerId: string;
 };
 
+export type GuidedDivergenceCorrectionAlias = {
+  alias: string;
+  normalizedAlias: string;
+};
+
+export type GuidedDivergenceCorrectionEvent = {
+  id: string;
+  expectedPlayerId: string | null;
+};
+
+export type GuidedDivergenceCorrectionResult = {
+  updatedEvents: number;
+  skippedEvents: number;
+  aliasesCreated: number;
+  aliasesAlreadyPresent: number;
+  eventIds: string[];
+  targetPlayerId: string;
+};
+
 export type EventReviewDetail = {
   id: string;
   eventType: string;
@@ -55,6 +74,24 @@ type LinkTargetPlayer = {
 type ReassignEventRecord = {
   id: string;
   side: string | null;
+};
+
+type GuidedCorrectionPlayerRecord = {
+  id: string;
+  side: string;
+};
+
+type GuidedCorrectionEventRecord = {
+  id: string;
+  player_id: string | null;
+  side: string | null;
+};
+
+type GuidedCorrectionAliasRecord = {
+  id: string;
+  player_id: string;
+  alias: string;
+  normalized_alias: string;
 };
 
 type EventReviewRecord = {
@@ -158,6 +195,189 @@ export async function reassignEventsToPlayer(params: {
 
   return {
     updatedEvents,
+    eventIds,
+    targetPlayerId,
+  };
+}
+
+export async function applyGuidedDivergenceCorrection(params: {
+  targetPlayerId: string;
+  eventsToMove: GuidedDivergenceCorrectionEvent[];
+  aliasesToCreate: GuidedDivergenceCorrectionAlias[];
+}): Promise<GuidedDivergenceCorrectionResult> {
+  const targetPlayerId = params.targetPlayerId.trim();
+  const eventsToMove = Array.from(
+    new Map(
+      params.eventsToMove
+        .filter((event) => Boolean(event.id))
+        .map((event) => [
+          event.id,
+          { id: event.id, expectedPlayerId: event.expectedPlayerId },
+        ])
+    ).values()
+  );
+  const aliasesToCreate = Array.from(
+    new Map(
+      params.aliasesToCreate
+        .map((alias) => {
+          const aliasName = alias.alias.trim();
+          const normalizedAlias = normalizeText(alias.normalizedAlias || aliasName);
+
+          return [
+            normalizedAlias,
+            {
+              alias: aliasName,
+              normalizedAlias,
+            },
+          ] as const;
+        })
+        .filter(([, alias]) => Boolean(alias.alias && alias.normalizedAlias))
+    ).values()
+  );
+
+  if (!targetPlayerId) {
+    throw new Error("Jogador destino invalido para correcao guiada.");
+  }
+
+  if (eventsToMove.length === 0 && aliasesToCreate.length === 0) {
+    throw new Error("Revisao manual necessaria: nenhuma escrita concreta foi encontrada.");
+  }
+
+  const { data: player, error: playerError } = await supabase
+    .from("players")
+    .select("id, side")
+    .eq("id", targetPlayerId)
+    .maybeSingle();
+
+  if (playerError) throw playerError;
+  if (!player) {
+    throw new Error("Jogador destino nao foi encontrado antes de aplicar.");
+  }
+
+  const targetPlayer = player as GuidedCorrectionPlayerRecord;
+  let aliasesCreated = 0;
+  let aliasesAlreadyPresent = 0;
+  const aliasesPendingInsert: GuidedDivergenceCorrectionAlias[] = [];
+
+  for (const alias of aliasesToCreate) {
+    const { data: existingAliases, error: aliasError } = await supabase
+      .from("player_aliases")
+      .select("id, player_id, alias, normalized_alias")
+      .eq("normalized_alias", alias.normalizedAlias);
+
+    if (aliasError) throw aliasError;
+
+    const aliases = (existingAliases ?? []) as GuidedCorrectionAliasRecord[];
+    const conflictingAlias = aliases.find(
+      (existing) => existing.player_id !== targetPlayerId
+    );
+
+    if (conflictingAlias) {
+      throw new Error(
+        `Alias ${alias.alias} passou a pertencer a outro jogador. Revisao manual necessaria.`
+      );
+    }
+
+    if (aliases.some((existing) => existing.player_id === targetPlayerId)) {
+      aliasesAlreadyPresent += 1;
+      continue;
+    }
+
+    aliasesPendingInsert.push(alias);
+  }
+
+  let updatedEvents = 0;
+  let skippedEvents = 0;
+  const eventIds = eventsToMove.map((event) => event.id);
+  const eventsPendingUpdate: GuidedDivergenceCorrectionEvent[] = [];
+
+  if (eventIds.length > 0) {
+    const { data: events, error: eventsError } = await supabase
+      .from("events")
+      .select("id, player_id, side")
+      .in("id", eventIds);
+
+    if (eventsError) throw eventsError;
+
+    const eventsById = new Map(
+      ((events ?? []) as GuidedCorrectionEventRecord[]).map((event) => [
+        event.id,
+        event,
+      ])
+    );
+    const missingEvent = eventsToMove.find((event) => !eventsById.has(event.id));
+
+    if (missingEvent) {
+      throw new Error("Um ou mais eventos da previa nao foram encontrados.");
+    }
+
+    for (const eventToMove of eventsToMove) {
+      const currentEvent = eventsById.get(eventToMove.id);
+      if (!currentEvent) continue;
+
+      if (
+        (currentEvent.side === "PEDRO" || currentEvent.side === "NETU") &&
+        currentEvent.side !== targetPlayer.side
+      ) {
+        throw new Error("Ha eventos de outro lado/time nesta correcao guiada.");
+      }
+
+      if (currentEvent.player_id === targetPlayerId) {
+        skippedEvents += 1;
+        continue;
+      }
+
+      if (currentEvent.player_id !== eventToMove.expectedPlayerId) {
+        throw new Error(
+          "Um evento mudou desde a previa. Recarregue a curadoria antes de aplicar."
+        );
+      }
+
+      eventsPendingUpdate.push(eventToMove);
+    }
+  }
+
+  for (const alias of aliasesPendingInsert) {
+    const { error: insertError } = await supabase.from("player_aliases").insert({
+      player_id: targetPlayerId,
+      alias: alias.alias,
+      normalized_alias: alias.normalizedAlias,
+    });
+
+    if (insertError) throw insertError;
+    aliasesCreated += 1;
+  }
+
+  for (const eventToMove of eventsPendingUpdate) {
+    let updateQuery = supabase
+      .from("events")
+      .update({ player_id: targetPlayerId })
+      .eq("id", eventToMove.id)
+      .select("id");
+
+    if (eventToMove.expectedPlayerId) {
+      updateQuery = updateQuery.eq("player_id", eventToMove.expectedPlayerId);
+    } else {
+      updateQuery = updateQuery.is("player_id", null);
+    }
+
+    const { data: updated, error: updateError } = await updateQuery;
+
+    if (updateError) throw updateError;
+    if ((updated ?? []).length === 0) {
+      throw new Error(
+        "Um evento nao mantinha mais o player_id esperado. Recarregue a curadoria."
+      );
+    }
+
+    updatedEvents += 1;
+  }
+
+  return {
+    updatedEvents,
+    skippedEvents,
+    aliasesCreated,
+    aliasesAlreadyPresent,
     eventIds,
     targetPlayerId,
   };

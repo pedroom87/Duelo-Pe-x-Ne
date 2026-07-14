@@ -70,6 +70,29 @@ Status:
 
 Publicacao dessa regra temporal em producao: a confirmar, pois a ultima versao publicada confirmada nesta tarefa e `0.9.8`.
 
+Na Sprint `0.9.10`, divergencias reais podem ter correcao guiada quando todas as condicoes forem verdadeiras:
+
+- a linha esta `Divergente`;
+- a diferenca homologavel e positiva, ou seja, o site tem menos gols dentro da cobertura;
+- existe exatamente um jogador destino valido;
+- existe ao menos um evento concreto para atualizar ou um alias concreto para criar;
+- o usuario confirma explicitamente a previa.
+
+A previa deve mostrar jogador atual, jogador destino, alias a criar, eventos que terao `events.player_id` atualizado, partidas envolvidas, eventos em partidas conferidas e impacto esperado.
+
+Antes de aplicar, o sistema revalida no banco que:
+
+- o destino ainda existe;
+- os eventos ainda possuem o `player_id` esperado;
+- o alias nao passou a pertencer a outro jogador.
+
+A escrita permitida pela correcao guiada e limitada a:
+
+- `events.player_id`, apenas nos eventos selecionados;
+- `player_aliases`, apenas para criar alias ainda inexistente e sem conflito.
+
+Se qualquer condicao falhar, a acao permanece bloqueada como `Revisao manual necessaria`.
+
 ## Curadoria de Identidades
 
 Agrupa problemas de identidade:

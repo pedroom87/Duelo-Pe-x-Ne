@@ -23,9 +23,9 @@ import {
   reassignAliasOwner,
 } from "@/lib/playerAliases";
 import {
+  applyGuidedDivergenceCorrection,
   getEventReviewDetails,
   linkUnresolvedEventsToPlayer,
-  reassignEventsToPlayer,
   type EventReviewDetail,
 } from "@/lib/events";
 import { normalizeText } from "@/lib/playerIdentity";
@@ -84,10 +84,12 @@ type IdentityResolutionPreviewAlias = {
 
 type IdentityResolutionPreviewEvent = {
   id: string;
+  expectedPlayerId: string | null;
   matchNumber: number | null;
   seq: number | null;
   playerNameRaw: string;
   eventType: string;
+  matchVerified: boolean;
   sourcePlayerLabel: string;
   targetPlayerLabel: string;
 };
@@ -102,6 +104,9 @@ type IdentityResolutionPreview = {
   eventsToMove: IdentityResolutionPreviewEvent[];
   sourcePlayers: string[];
   affectedRankings: string[];
+  involvedMatches: Array<number | null>;
+  verifiedEventsCount: number;
+  expectedImpact: string;
   reviewOnlyEvents: EventReviewDetail[];
   hasExecutableAction: boolean;
   manualReviewReason: string | null;
@@ -115,7 +120,11 @@ type IdentityResolutionHistoryItem = {
   rowPlayerName: string;
   targetPlayerName: string;
   aliasesCreated: number;
+  aliasesAlreadyPresent: number;
   eventsMoved: number;
+  eventsSkipped: number;
+  differenceBefore: number;
+  differenceAfter: number | null;
   affectedRankings: string[];
   createdAt: string;
 };
@@ -1093,7 +1102,42 @@ function getOfficialValidatorUnlinkedEventNames(row: OfficialRankingValidatorRow
 
 type OfficialRankingValidatorBlockProps = {
   summary: OfficialRankingValidatorSummary;
+  onPrepareGuidedCorrection: (row: OfficialRankingValidatorRow) => void;
+  loadingKey: string | null;
 };
+
+function getOfficialValidatorGuidedCorrectionState(
+  row: OfficialRankingValidatorRow
+) {
+  if (row.status !== "Divergente") {
+    return {
+      canPrepare: false,
+      reason: "Item sem divergencia homologavel.",
+    };
+  }
+
+  if (row.difference <= 0) {
+    return {
+      canPrepare: false,
+      reason:
+        "Revisao manual necessaria: o site tem evento excedente e esta Sprint nao exclui nem altera dados do evento.",
+    };
+  }
+
+  if (row.matchedPlayers.length !== 1) {
+    return {
+      canPrepare: false,
+      reason:
+        "Revisao manual necessaria: a divergencia nao possui exatamente um jogador destino valido.",
+    };
+  }
+
+  return {
+    canPrepare: true,
+    reason:
+      "Destino unico encontrado. A previa ainda validara alias e eventos concretos antes de aplicar.",
+  };
+}
 
 function OfficialRankingValidatorEventList({
   title,
@@ -1322,6 +1366,8 @@ function OfficialRankingValidatorInvestigationList({
 
 function OfficialRankingValidatorBlock({
   summary,
+  onPrepareGuidedCorrection,
+  loadingKey,
 }: OfficialRankingValidatorBlockProps) {
   const cards = [
     {
@@ -1367,7 +1413,8 @@ function OfficialRankingValidatorBlock({
             Validador oficial dos rankings
           </h3>
           <p className="mt-2 text-sm text-cyan-100">
-            Divergencias agora podem ser investigadas ate o evento individual, sem executar correcao.
+            Divergencias reais podem ser corrigidas somente com destino unico,
+            previa e confirmacao manual.
           </p>
           <p className="hidden">
             Divergências viram ações manuais: ver detalhes, confirmar destino e só então executar.
@@ -1393,6 +1440,9 @@ function OfficialRankingValidatorBlock({
 
       <div className="mt-4 space-y-3">
         {summary.rows.map((row) => {
+          const guidedCorrection = getOfficialValidatorGuidedCorrectionState(row);
+          const correctionLoadingKey = `resolve:${row.key}`;
+
           return (
             <details
               key={row.key}
@@ -1517,24 +1567,36 @@ function OfficialRankingValidatorBlock({
                   </p>
 
                   <div className="mt-3 rounded-lg border border-cyan-800 bg-zinc-950 px-3 py-3 text-xs font-bold uppercase tracking-[0.2em] text-cyan-200">
-                    Somente investigacao
+                    Correcao guiada
                   </div>
 
                   <p className="mt-3 text-xs text-cyan-100">
-                    Nesta Sprint, a divergencia e apenas investigada ate o evento individual. Nenhuma correcao e aplicada por aqui.
+                    A escrita so fica disponivel com destino unico, acao concreta
+                    e confirmacao explicita.
                   </p>
 
                   <div className="mt-4 space-y-2">
                     <button
                       type="button"
-                      onClick={() => undefined}
-                      disabled
+                      onClick={() => onPrepareGuidedCorrection(row)}
+                      disabled={
+                        !guidedCorrection.canPrepare ||
+                        loadingKey !== null
+                      }
                       className="w-full rounded-lg bg-cyan-700 px-4 py-3 text-sm font-bold text-white transition hover:bg-cyan-600 disabled:opacity-50"
                     >
-                      Correcao indisponivel nesta Sprint
+                      {loadingKey === correctionLoadingKey
+                        ? "Preparando..."
+                        : guidedCorrection.canPrepare
+                          ? "Preparar correcao guiada"
+                          : "Revisao manual necessaria"}
                     </button>
 
                   </div>
+
+                  <p className="mt-3 rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-2 text-xs text-zinc-400">
+                    {guidedCorrection.reason}
+                  </p>
 
                   {row.status !== "Divergente" ? (
                     <p className="mt-3 rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-2 text-xs text-zinc-400">
@@ -1762,9 +1824,6 @@ export default function PlayerList({
   const [editSide, setEditSide] = useState<"PEDRO" | "NETU">("PEDRO");
   const [editLoading, setEditLoading] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
-  const [validatorTargetByRowKey, setValidatorTargetByRowKey] = useState<
-    Record<string, string>
-  >({});
   const [validatorActionLoadingKey, setValidatorActionLoadingKey] =
     useState<string | null>(null);
   const [identityResolutionPreview, setIdentityResolutionPreview] =
@@ -2055,6 +2114,12 @@ export default function PlayerList({
     setAliasesByPlayerId(buildAliasState(updatedPlayers));
     setMergeSourceId(nextSourceId);
     setMergeTargetId(nextTargetId);
+
+    return {
+      players: updatedPlayers,
+      audit: updatedAudit,
+      globalIndex: updatedGlobalIndex,
+    };
   }
 
   async function handleAddOfficialAliases(
@@ -2143,9 +2208,15 @@ export default function PlayerList({
   }
 
   async function buildIdentityResolutionPreview(
-    row: OfficialRankingValidatorRow,
-    targetPlayerId: string
+    row: OfficialRankingValidatorRow
   ): Promise<IdentityResolutionPreview | null> {
+    const guidedCorrection = getOfficialValidatorGuidedCorrectionState(row);
+    if (!guidedCorrection.canPrepare) {
+      setFeedback(guidedCorrection.reason);
+      return null;
+    }
+
+    const targetPlayerId = row.matchedPlayers[0]?.id ?? "";
     const target = playerList.find((player) => player.id === targetPlayerId);
     if (!target) return null;
 
@@ -2191,8 +2262,30 @@ export default function PlayerList({
       });
     });
 
+    const maxHistoricalMatchNumber =
+      audit.officialRankingValidator.historicalCoverageMaxMatchNumber;
+    const candidateTargetKeys = new Set(targetAliasKeys);
+
+    aliasesToCreateByKey.forEach((alias) => {
+      candidateTargetKeys.add(alias.normalizedAlias);
+    });
+
     const eventsToMove = row.databaseEvents
+      .filter((event) => event.eventType === "GOL")
       .filter((event) => event.playerId !== target.id)
+      .filter((event) => {
+        if (event.matchNumber === null || maxHistoricalMatchNumber === null) {
+          return false;
+        }
+
+        return event.matchNumber <= maxHistoricalMatchNumber;
+      })
+      .filter((event) => {
+        if (event.resolvedPlayerId === target.id) return true;
+
+        const normalizedRawName = normalizeText(event.playerNameRaw);
+        return candidateTargetKeys.has(normalizedRawName);
+      })
       .map((event) => {
         const sourcePlayer = event.playerId
           ? playersById.get(event.playerId)
@@ -2205,10 +2298,12 @@ export default function PlayerList({
 
         return {
           id: event.id,
+          expectedPlayerId: event.playerId,
           matchNumber: event.matchNumber,
           seq: event.seq,
           playerNameRaw: event.playerNameRaw,
           eventType: event.eventType,
+          matchVerified: event.matchVerified,
           sourcePlayerLabel,
           targetPlayerLabel: `${target.name} (${formatAuditSide(target.side)})`,
         };
@@ -2223,6 +2318,21 @@ export default function PlayerList({
     );
     const hasExecutableAction =
       aliasesToCreateByKey.size > 0 || eventsToMove.length > 0;
+    const involvedMatches = Array.from(
+      new Set(eventsToMove.map((event) => event.matchNumber))
+    ).sort((a, b) => (a ?? Number.MAX_SAFE_INTEGER) - (b ?? Number.MAX_SAFE_INTEGER));
+    const verifiedEventsCount = eventsToMove.filter(
+      (event) => event.matchVerified
+    ).length;
+    const expectedImpact = hasExecutableAction
+      ? `A divergencia atual e ${formatSignedNumber(
+          row.difference
+        )}. Apos aplicar, o Validador sera recalculado usando ${formatNumber(
+          eventsToMove.length
+        )} evento(s) reatribuido(s) e ${formatNumber(
+          aliasesToCreateByKey.size
+        )} alias(es) novo(s).`
+      : "Nenhuma escrita concreta foi encontrada; a divergencia permanece bloqueada para revisao manual.";
     const linkedEventIds = row.databaseEvents
       .filter((event) => event.playerId === target.id)
       .map((event) => event.id);
@@ -2253,6 +2363,9 @@ export default function PlayerList({
         new Set(eventsToMove.map((event) => event.sourcePlayerLabel))
       ),
       affectedRankings,
+      involvedMatches,
+      verifiedEventsCount,
+      expectedImpact,
       reviewOnlyEvents,
       hasExecutableAction,
       manualReviewReason,
@@ -2262,13 +2375,10 @@ export default function PlayerList({
     };
   }
 
-  async function handlePrepareIdentityResolution(
-    row: OfficialRankingValidatorRow,
-    targetPlayerId: string
-  ) {
+  async function handlePrepareIdentityResolution(row: OfficialRankingValidatorRow) {
     try {
       setValidatorActionLoadingKey(`resolve:${row.key}`);
-      const preview = await buildIdentityResolutionPreview(row, targetPlayerId);
+      const preview = await buildIdentityResolutionPreview(row);
 
       if (!preview) {
         setFeedback("Selecione um destino valido para resolver a divergencia.");
@@ -2300,25 +2410,31 @@ export default function PlayerList({
     try {
       setValidatorActionLoadingKey(loadingKey);
 
-      for (const alias of preview.aliasesToCreate) {
-        await addAlias(preview.targetPlayerId, alias.alias);
-      }
-
-      if (preview.eventsToMove.length > 0) {
-        await reassignEventsToPlayer({
-          eventIds: preview.eventsToMove.map((event) => event.id),
-          targetPlayerId: preview.targetPlayerId,
-        });
-      }
-
-      await recarregarJogadores();
+      const result = await applyGuidedDivergenceCorrection({
+        targetPlayerId: preview.targetPlayerId,
+        aliasesToCreate: preview.aliasesToCreate,
+        eventsToMove: preview.eventsToMove.map((event) => ({
+          id: event.id,
+          expectedPlayerId: event.expectedPlayerId,
+        })),
+      });
+      const refreshed = await recarregarJogadores();
+      const updatedRow =
+        refreshed.audit.officialRankingValidator.rows.find(
+          (row) => row.key === preview.rowKey
+        ) ?? null;
+      const differenceAfter = updatedRow?.difference ?? 0;
 
       const historyItem: IdentityResolutionHistoryItem = {
-        id: `${Date.now()}:${preview.rowKey}`,
+        id: `${preview.rowKey}:${preview.difference}:${differenceAfter}:${result.updatedEvents}:${result.aliasesCreated}:${result.skippedEvents}`,
         rowPlayerName: preview.rowPlayerName,
         targetPlayerName: preview.targetPlayerName,
-        aliasesCreated: preview.aliasesToCreate.length,
-        eventsMoved: preview.eventsToMove.length,
+        aliasesCreated: result.aliasesCreated,
+        aliasesAlreadyPresent: result.aliasesAlreadyPresent,
+        eventsMoved: result.updatedEvents,
+        eventsSkipped: result.skippedEvents,
+        differenceBefore: preview.difference,
+        differenceAfter,
         affectedRankings: preview.affectedRankings,
         createdAt: new Date().toLocaleString("pt-BR"),
       };
@@ -2327,7 +2443,11 @@ export default function PlayerList({
       setIdentityResolutionPreview(null);
       setIdentityResolutionConfirmed(false);
       setFeedback(
-        `Divergencia resolvida para ${preview.targetPlayerName}. Rankings e Validador Oficial recalculados.`
+        `${formatNumber(result.updatedEvents)} evento(s) alterado(s), ${formatNumber(
+          result.aliasesCreated
+        )} alias(es) criado(s). Diferenca: ${formatSignedNumber(
+          preview.difference
+        )} -> ${formatSignedNumber(differenceAfter)}. Rankings e Validador Oficial recalculados.`
       );
     } catch (error: unknown) {
       const message = formatSupabaseError(
@@ -3181,6 +3301,8 @@ export default function PlayerList({
         <div id={OFFICIAL_VALIDATOR_SECTION_ID}>
           <OfficialRankingValidatorBlock
             summary={officialRankingValidator}
+            onPrepareGuidedCorrection={handlePrepareIdentityResolution}
+            loadingKey={validatorActionLoadingKey}
           />
         </div>
         {identityResolutionHistory.length > 0 ? (
@@ -3203,6 +3325,15 @@ export default function PlayerList({
                   </p>
                   <p className="mt-1 text-zinc-500">
                     Rankings: {item.affectedRankings.join(", ")}
+                  </p>
+                  <p className="mt-1 text-zinc-500">
+                    Detalhe: {formatNumber(item.aliasesAlreadyPresent)} alias(es)
+                    ja existentes, {formatNumber(item.eventsSkipped)} evento(s)
+                    ignorado(s). Diferenca:{" "}
+                    {formatSignedNumber(item.differenceBefore)} -&gt;{" "}
+                    {item.differenceAfter === null
+                      ? "linha resolvida"
+                      : formatSignedNumber(item.differenceAfter)}
                   </p>
                 </div>
               ))}
@@ -3634,7 +3765,7 @@ export default function PlayerList({
             <div className="mt-5 grid gap-3 md:grid-cols-3">
               <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-3">
                 <p className="text-xs font-bold uppercase tracking-[0.2em] text-zinc-500">
-                  Origem
+                  Jogador atual
                 </p>
                 <p className="mt-2 text-sm font-bold text-zinc-100">
                   {identityResolutionPreview.sourcePlayers.length > 0
@@ -3661,6 +3792,39 @@ export default function PlayerList({
                   {formatNumber(identityResolutionPreview.historicalGoals)} vs{" "}
                   {formatNumber(identityResolutionPreview.siteGoals)} (
                   {formatSignedNumber(identityResolutionPreview.difference)})
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-4 grid gap-3 lg:grid-cols-3">
+              <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-3">
+                <p className="text-xs font-bold uppercase tracking-[0.2em] text-zinc-500">
+                  Partidas envolvidas
+                </p>
+                <p className="mt-2 text-sm font-bold text-zinc-100">
+                  {identityResolutionPreview.involvedMatches.length > 0
+                    ? identityResolutionPreview.involvedMatches
+                        .map(formatMatchNumber)
+                        .join(", ")
+                    : "Sem eventos a mover"}
+                </p>
+              </div>
+
+              <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-3">
+                <p className="text-xs font-bold uppercase tracking-[0.2em] text-zinc-500">
+                  Conferidas
+                </p>
+                <p className="mt-2 text-sm font-bold text-zinc-100">
+                  {formatNumber(identityResolutionPreview.verifiedEventsCount)} evento(s)
+                </p>
+              </div>
+
+              <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-3">
+                <p className="text-xs font-bold uppercase tracking-[0.2em] text-zinc-500">
+                  Impacto esperado
+                </p>
+                <p className="mt-2 text-sm font-semibold text-zinc-100">
+                  {identityResolutionPreview.expectedImpact}
                 </p>
               </div>
             </div>
@@ -3730,6 +3894,15 @@ export default function PlayerList({
                           <p className="mt-1 text-zinc-500">
                             {formatMatchNumber(event.matchNumber)} · Seq{" "}
                             {event.seq ?? "-"} · {formatEventType(event.eventType)}
+                          </p>
+                          <p className="mt-1 break-all text-zinc-500">
+                            event_id: {event.id} - player_id esperado:{" "}
+                            {event.expectedPlayerId ?? "sem player_id"}
+                          </p>
+                          <p className="mt-1 text-zinc-500">
+                            {event.matchVerified
+                              ? "Partida conferida"
+                              : "Nao conferida"}
                           </p>
                         </div>
                         <p className="text-zinc-500">
