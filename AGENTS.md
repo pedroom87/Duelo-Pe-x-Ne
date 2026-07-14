@@ -106,6 +106,8 @@ Interface limpa.
 
 Leia todo o projeto.
 
+Leia docs/PROJECT_CONTEXT.md, docs/AI_RULES.md e docs/ROADMAP.md antes de iniciar uma Sprint.
+
 Reutilize componentes existentes.
 
 Nunca criar código semelhante se já existir.

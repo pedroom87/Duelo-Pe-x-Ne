@@ -1,46 +1,42 @@
-# Duelo Pe X Ne
+# Roadmap
 
-## Sprint 1 ✅
-- [x] Next.js
-- [x] Supabase
-- [x] Layout base
-- [x] Sidebar
-- [x] Estrutura do projeto
+## Concluido
 
----
+- Base do app em Next.js, React, TypeScript, Tailwind, Supabase e Vercel.
+- Fluxo principal de partidas e eventos.
+- Historico de partidas.
+- Rankings.
+- Tela de jogadores e aliases.
+- Campo de partida conferida (`matches.verified`).
+- Centro de Curadoria em `/curadoria`.
+- Saude dos Dados.
+- Reconciliacao Segura.
+- Cobertura da Importacao.
+- Validador Oficial.
+- Curadoria de Identidades.
+- Investigador de Eventos.
+- Revisao de Eventos sem Equivalente.
+- Separacao temporal de eventos posteriores no codigo local; publicacao a confirmar.
 
-## Sprint 2 🚧
-- [ ] Cadastro inteligente de jogadores
-- [ ] Cadastro de partidas
-- [ ] Cálculo automático do placar
-- [ ] Salvar no Supabase
+## Fase atual
 
----
+- Homologar rankings historicos.
+- Investigar divergencias reais.
+- Reduzir divergencias ate zero.
+- Preservar eventos posteriores sem transforma-los em falso positivo.
+- Preparar base para versao 1.0.
 
-## Sprint 3
-- [ ] Importação da planilha Excel
-- [ ] Histórico completo
-- [ ] Edição de partidas
+## Proximos passos
 
----
+- Revisar divergencias restantes no Validador Oficial.
+- Confirmar se a regra temporal da versao `0.9.9` esta publicada.
+- Documentar procedimento operacional de curadoria quando o fluxo estabilizar.
+- Preparar versao 1.0.
+- Planejar mudanca do endereco na Vercel.
 
-## Sprint 4
-- [ ] Dashboard
-- [ ] Rankings
-- [ ] Estatísticas
-- [ ] Suspensões
+## Futuro
 
----
-
-## Sprint 5
-- [ ] IA por texto
-- [ ] IA por imagem
-- [ ] Reconhecimento automático de jogadores
-
----
-
-## Sprint 6
-- [ ] Timeline
-- [ ] Recordes
-- [ ] Memórias do Clássico
-- [ ] Conquistas
+- Evoluir dashboards e estatisticas.
+- Aprofundar disciplina e historico por temporada/campeonato.
+- Preparar suporte mais claro a multiplos campeonatos: a confirmar.
+- Melhorar auditoria operacional sem reduzir velocidade de registro durante partidas.
