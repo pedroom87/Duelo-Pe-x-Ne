@@ -1,5 +1,7 @@
 # Changelog
 
+- v0.9.8 - Revisao de Eventos
+
 - v0.9.7 - Investigador de Eventos
 
 - v0.9.6 - Centro de Curadoria

@@ -47,6 +47,10 @@ type ReconciliationSummary = RankingsDataHealthAudit["reconciliationSummary"];
 type ReconciliationSample = ReconciliationSummary["samples"]["safe"][number];
 type ReconciliationCandidate = ReconciliationSample["candidates"][number];
 type ImportCoverageSummary = RankingsDataHealthAudit["importCoverageSummary"];
+type HistoricalEquivalentReviewSummary =
+  RankingsDataHealthAudit["historicalEquivalentReview"];
+type HistoricalEquivalentReviewEvent =
+  HistoricalEquivalentReviewSummary["events"][number];
 type OfficialRankingValidatorSummary =
   RankingsDataHealthAudit["officialRankingValidator"];
 type OfficialRankingValidatorRow = OfficialRankingValidatorSummary["rows"][number];
@@ -65,7 +69,13 @@ const DATA_HEALTH_SECTION_ID = "saude-dos-dados";
 const OFFICIAL_VALIDATOR_SECTION_ID = "validador-oficial";
 const SAFE_RECONCILIATION_SECTION_ID = "reconciliacao-segura";
 const IMPORT_COVERAGE_SECTION_ID = "cobertura-importacao";
+const HISTORICAL_EQUIVALENT_REVIEW_SECTION_ID =
+  "eventos-sem-equivalente-historico";
 const EVENT_INVESTIGATOR_SECTION_ID = "investigador-eventos";
+
+function getEventInvestigatorAnchorId(eventId: string) {
+  return `investigador-evento-${eventId}`;
+}
 
 type IdentityResolutionPreviewAlias = {
   alias: string;
@@ -721,6 +731,259 @@ function ImportCoverageSummaryBlock({
   );
 }
 
+type HistoricalEquivalentReviewFilter =
+  | "TODOS"
+  | HistoricalEquivalentReviewEvent["classification"];
+
+function formatHistoricalEquivalentClassification(
+  classification: HistoricalEquivalentReviewEvent["classification"]
+) {
+  const labels: Record<
+    HistoricalEquivalentReviewEvent["classification"],
+    string
+  > = {
+    SEM_EQUIVALENTE: "Sem equivalente",
+    EQUIVALENTE_PROVAVEL: "Equivalente provavel",
+    MANUAL_POSTERIOR_PROVAVEL: "Manual/posterior provavel",
+    INDETERMINADO: "Indeterminado",
+  };
+
+  return labels[classification];
+}
+
+function getHistoricalEquivalentClassificationClasses(
+  classification: HistoricalEquivalentReviewEvent["classification"]
+) {
+  if (classification === "SEM_EQUIVALENTE") {
+    return "border-red-700 bg-red-950/35 text-red-200";
+  }
+
+  if (classification === "EQUIVALENTE_PROVAVEL") {
+    return "border-emerald-700 bg-emerald-950/30 text-emerald-200";
+  }
+
+  if (classification === "MANUAL_POSTERIOR_PROVAVEL") {
+    return "border-blue-700 bg-blue-950/30 text-blue-200";
+  }
+
+  return "border-yellow-700 bg-yellow-950/30 text-yellow-200";
+}
+
+function getHistoricalEquivalentReviewHref(
+  event: HistoricalEquivalentReviewEvent
+) {
+  if (event.eventType === "GOL") {
+    return `#${getEventInvestigatorAnchorId(event.id)}`;
+  }
+
+  return `#${OFFICIAL_VALIDATOR_SECTION_ID}`;
+}
+
+function HistoricalEquivalentReviewEventCard({
+  event,
+}: {
+  event: HistoricalEquivalentReviewEvent;
+}) {
+  return (
+    <div className="rounded-lg border border-zinc-800 bg-zinc-900 p-3 text-xs text-zinc-300">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <span
+              className={`rounded-full border px-2 py-1 font-bold ${getHistoricalEquivalentClassificationClasses(
+                event.classification
+              )}`}
+            >
+              {formatHistoricalEquivalentClassification(event.classification)}
+            </span>
+            <span
+              className={`rounded-full border px-2 py-1 font-bold ${
+                event.matchVerified
+                  ? "border-emerald-700 bg-emerald-950/30 text-emerald-200"
+                  : "border-yellow-700 bg-yellow-950/30 text-yellow-200"
+              }`}
+            >
+              {event.matchVerified ? "Partida conferida" : "Nao conferida"}
+            </span>
+          </div>
+
+          <p className="mt-3 break-words text-sm font-black text-zinc-100">
+            {event.playerName}
+          </p>
+          <p className="mt-1 break-words text-zinc-500">
+            player_name_raw: {event.playerNameRaw}
+          </p>
+          <p className="mt-1 break-all text-zinc-500">event_id: {event.id}</p>
+        </div>
+
+        <a
+          href={getHistoricalEquivalentReviewHref(event)}
+          className="shrink-0 rounded-lg border border-cyan-800 bg-cyan-950/30 px-3 py-2 text-center text-xs font-bold text-cyan-100 transition hover:bg-cyan-950/50"
+        >
+          Ver no Investigador
+        </a>
+      </div>
+
+      <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+        <div className="rounded-lg border border-zinc-800 bg-zinc-950 p-2">
+          <p className="text-zinc-500">event_type</p>
+          <p className="mt-1 font-bold text-zinc-100">
+            {formatEventType(event.eventType)}
+          </p>
+        </div>
+        <div className="rounded-lg border border-zinc-800 bg-zinc-950 p-2">
+          <p className="text-zinc-500">partida</p>
+          <p className="mt-1 font-bold text-zinc-100">
+            {formatMatchNumber(event.matchNumber)}
+          </p>
+        </div>
+        <div className="rounded-lg border border-zinc-800 bg-zinc-950 p-2">
+          <p className="text-zinc-500">player_id</p>
+          <p className="mt-1 break-all font-bold text-zinc-100">
+            {event.playerId ?? "sem player_id"}
+          </p>
+        </div>
+        <div className="rounded-lg border border-zinc-800 bg-zinc-950 p-2">
+          <p className="text-zinc-500">source_cell</p>
+          <p className="mt-1 font-bold text-zinc-100">
+            {formatSourceCell(event.sourceCell)}
+          </p>
+        </div>
+        <div className="rounded-lg border border-zinc-800 bg-zinc-950 p-2">
+          <p className="text-zinc-500">side</p>
+          <p className="mt-1 font-bold text-zinc-100">
+            {formatAuditSide(event.side)}
+          </p>
+        </div>
+        <div className="rounded-lg border border-zinc-800 bg-zinc-950 p-2 sm:col-span-2 xl:col-span-3">
+          <p className="text-zinc-500">Motivo da classificacao</p>
+          <p className="mt-1 font-semibold text-zinc-200">{event.reason}</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function HistoricalEquivalentReviewBlock({
+  summary,
+}: {
+  summary: HistoricalEquivalentReviewSummary;
+}) {
+  const [filter, setFilter] =
+    useState<HistoricalEquivalentReviewFilter>("TODOS");
+  const filters: Array<{
+    value: HistoricalEquivalentReviewFilter;
+    label: string;
+    count: number;
+  }> = [
+    {
+      value: "TODOS",
+      label: "Todos",
+      count: summary.totalForReview,
+    },
+    {
+      value: "SEM_EQUIVALENTE",
+      label: "Sem equivalente",
+      count: summary.withoutEquivalentEvents,
+    },
+    {
+      value: "EQUIVALENTE_PROVAVEL",
+      label: "Equivalente provavel",
+      count: summary.probableEquivalentEvents,
+    },
+    {
+      value: "MANUAL_POSTERIOR_PROVAVEL",
+      label: "Manual/posterior provavel",
+      count: summary.probableManualEvents,
+    },
+    {
+      value: "INDETERMINADO",
+      label: "Indeterminado",
+      count: summary.indeterminateEvents,
+    },
+  ];
+  const filteredEvents =
+    filter === "TODOS"
+      ? summary.events
+      : summary.events.filter((event) => event.classification === filter);
+  const cards = [
+    {
+      label: "Total para revisao",
+      value: formatNumber(summary.totalForReview),
+    },
+    {
+      label: "Sem equivalente",
+      value: formatNumber(summary.withoutEquivalentEvents),
+    },
+    {
+      label: "Equivalentes provaveis",
+      value: formatNumber(summary.probableEquivalentEvents),
+    },
+    {
+      label: "Manuais/posteriores",
+      value: formatNumber(summary.probableManualEvents),
+    },
+    {
+      label: "Indeterminados",
+      value: formatNumber(summary.indeterminateEvents),
+    },
+  ];
+
+  return (
+    <div className="mt-5 rounded-xl border border-orange-800 bg-orange-950/15 p-4">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+        <div>
+          <h3 className="text-lg font-black text-zinc-100">
+            Eventos sem equivalente historico
+          </h3>
+          <p className="mt-2 text-sm text-orange-100">
+            Fila somente leitura para eventos do banco sem par exato no JSON historico.
+          </p>
+        </div>
+
+        <p className="rounded-lg border border-orange-700 bg-orange-950/40 px-3 py-2 text-xs font-bold text-orange-100">
+          Sem correcao, exclusao ou reatribuicao nesta Sprint.
+        </p>
+      </div>
+
+      <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
+        {cards.map((card) => (
+          <AuditMetricCard key={card.label} label={card.label} value={card.value} />
+        ))}
+      </div>
+
+      <div className="mt-4 flex flex-wrap gap-2">
+        {filters.map((item) => (
+          <button
+            key={item.value}
+            type="button"
+            onClick={() => setFilter(item.value)}
+            className={`rounded-lg border px-3 py-2 text-xs font-bold transition ${
+              filter === item.value
+                ? "border-orange-600 bg-orange-950/50 text-orange-100"
+                : "border-zinc-800 bg-zinc-950 text-zinc-300 hover:border-zinc-700"
+            }`}
+          >
+            {item.label} - {formatNumber(item.count)}
+          </button>
+        ))}
+      </div>
+
+      {filteredEvents.length === 0 ? (
+        <p className="mt-4 rounded-xl border border-zinc-800 bg-zinc-950 px-4 py-3 text-sm text-zinc-400">
+          Nenhum evento neste filtro.
+        </p>
+      ) : (
+        <div className="mt-4 max-h-[720px] space-y-3 overflow-y-auto pr-1">
+          {filteredEvents.map((event) => (
+            <HistoricalEquivalentReviewEventCard key={event.id} event={event} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function getOfficialValidatorStatusClasses(
   status: OfficialRankingValidatorRow["status"]
 ) {
@@ -960,6 +1223,11 @@ function OfficialRankingValidatorInvestigationList({
         {events.map((event) => (
           <div
             key={event.investigationId}
+            id={
+              event.eventId
+                ? getEventInvestigatorAnchorId(event.eventId)
+                : undefined
+            }
             className="rounded-lg border border-zinc-800 bg-zinc-900 p-3 text-xs text-zinc-300"
           >
             <div className="flex flex-col gap-2 lg:flex-row lg:items-start lg:justify-between">
@@ -2336,6 +2604,7 @@ export default function PlayerList({
 
   const reconciliation = audit.reconciliationSummary;
   const importCoverage = audit.importCoverageSummary;
+  const historicalEquivalentReview = audit.historicalEquivalentReview;
   const officialRankingValidator = audit.officialRankingValidator;
   const auditCards = [
     {
@@ -2376,6 +2645,7 @@ export default function PlayerList({
     audit.eventsWithoutPlayerId +
     audit.aliasConflictsCount +
     audit.possibleDuplicateGroupsCount +
+    historicalEquivalentReview.criticalReviewEvents +
     officialRankingValidator.divergentPlayersCount +
     importCoverage.missingExpectedEvents;
   const curationToolCards = [
@@ -2413,6 +2683,35 @@ export default function PlayerList({
       href: `#${IMPORT_COVERAGE_SECTION_ID}`,
       counterLabel: "ausentes",
       counter: formatNumber(importCoverage.missingExpectedEvents),
+    },
+    {
+      title: "Eventos sem equivalente historico",
+      description: "Fila de revisao para eventos do banco sem par exato no JSON.",
+      href: `#${HISTORICAL_EQUIVALENT_REVIEW_SECTION_ID}`,
+      counterLabel: "revisao critica",
+      counter: formatNumber(historicalEquivalentReview.criticalReviewEvents),
+      details: [
+        {
+          label: "total",
+          value: formatNumber(historicalEquivalentReview.totalForReview),
+        },
+        {
+          label: "sem equivalente",
+          value: formatNumber(historicalEquivalentReview.withoutEquivalentEvents),
+        },
+        {
+          label: "equiv. provavel",
+          value: formatNumber(historicalEquivalentReview.probableEquivalentEvents),
+        },
+        {
+          label: "manual/posterior",
+          value: formatNumber(historicalEquivalentReview.probableManualEvents),
+        },
+        {
+          label: "indeterminado",
+          value: formatNumber(historicalEquivalentReview.indeterminateEvents),
+        },
+      ],
     },
     {
       title: "Investigador de Eventos",
@@ -2777,6 +3076,21 @@ export default function PlayerList({
                 <p className="mt-4 text-xs font-bold uppercase tracking-[0.25em] text-zinc-500">
                   {tool.counterLabel}
                 </p>
+                {"details" in tool && tool.details ? (
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {tool.details.map((detail) => (
+                      <span
+                        key={detail.label}
+                        className="rounded-full border border-zinc-800 bg-zinc-900 px-2 py-1 text-xs text-zinc-300"
+                      >
+                        {detail.label}:{" "}
+                        <span className="font-bold text-zinc-100">
+                          {detail.value}
+                        </span>
+                      </span>
+                    ))}
+                  </div>
+                ) : null}
               </a>
             ))}
           </div>
@@ -2855,6 +3169,9 @@ export default function PlayerList({
         </div>
         <div id={IMPORT_COVERAGE_SECTION_ID}>
           <ImportCoverageSummaryBlock summary={importCoverage} />
+        </div>
+        <div id={HISTORICAL_EQUIVALENT_REVIEW_SECTION_ID}>
+          <HistoricalEquivalentReviewBlock summary={historicalEquivalentReview} />
         </div>
 
         {!audit.hasRelevantIssues ? (

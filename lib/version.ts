@@ -9,16 +9,16 @@ export type VersionInfo = {
 };
 
 /**
- * Valores desta Sprint (Duel Legacy / 0.9.7)
+ * Valores desta Sprint (Duel Legacy / 0.9.8)
  */
-const VERSION_NUMBER = "0.9.7";
-const VERSION_CODENAME = "Investigador de Eventos";
+const VERSION_NUMBER = "0.9.8";
+const VERSION_CODENAME = "Revisao de Eventos";
 const VERSION_RELEASED_AT = "2026-07-14";
 const VERSION_COMMIT = null;
 const VERSION_HIGHLIGHTS = [
-  "Validador Oficial expandido ate o evento individual",
-  "Diagnostico automatico para divergencias de rankings",
-  "Causa provavel exibida sem permitir correcao nesta Sprint",
+  "Fila de eventos sem equivalente historico",
+  "Classificacao segura da origem dos eventos",
+  "Priorizacao de casos que exigem revisao manual",
 ];
 
 function getCommitFromEnv() {

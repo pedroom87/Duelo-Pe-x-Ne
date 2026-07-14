@@ -200,6 +200,36 @@ export type HistoricalImportCoverageSummary = {
   };
 };
 
+export type HistoricalEquivalentReviewClassification =
+  | "SEM_EQUIVALENTE"
+  | "EQUIVALENTE_PROVAVEL"
+  | "MANUAL_POSTERIOR_PROVAVEL"
+  | "INDETERMINADO";
+
+export type HistoricalEquivalentReviewEvent = {
+  id: string;
+  playerName: string;
+  eventType: string;
+  matchNumber: number | null;
+  playerNameRaw: string;
+  playerId: string | null;
+  sourceCell: string | null;
+  side: string;
+  matchVerified: boolean;
+  classification: HistoricalEquivalentReviewClassification;
+  reason: string;
+};
+
+export type HistoricalEquivalentReviewSummary = {
+  totalForReview: number;
+  criticalReviewEvents: number;
+  withoutEquivalentEvents: number;
+  probableEquivalentEvents: number;
+  probableManualEvents: number;
+  indeterminateEvents: number;
+  events: HistoricalEquivalentReviewEvent[];
+};
+
 export type OfficialRankingValidationStatus = "OK" | "Divergente";
 
 export type OfficialRankingValidatorHistoricalEvent = {
@@ -303,6 +333,7 @@ export type RankingsDataHealthAudit = {
   health: DataHealthStatus;
   reconciliationSummary: RankingReconciliationSummary;
   importCoverageSummary: HistoricalImportCoverageSummary;
+  historicalEquivalentReview: HistoricalEquivalentReviewSummary;
   officialRankingValidator: OfficialRankingValidatorSummary;
   unlinkedEventNames: UnlinkedEventNameGroup[];
   aliasConflicts: AliasConflict[];
@@ -2007,6 +2038,230 @@ function buildHistoricalImportCoverageSummary(params: {
   };
 }
 
+function takeExpectedCoverageMatch(
+  map: Map<string, ExpectedHistoricalEvent[]>,
+  key: string | null
+) {
+  if (!key) return null;
+
+  const matches = map.get(key);
+  if (!matches || matches.length === 0) return null;
+
+  return matches.shift() ?? null;
+}
+
+function removeExpectedCoverageBaseMatch(
+  map: Map<string, ExpectedHistoricalEvent[]>,
+  event: ExpectedHistoricalEvent
+) {
+  const key = getExpectedCoverageBaseKey(event);
+  const matches = map.get(key);
+  if (!matches || matches.length === 0) return;
+
+  const index = matches.findIndex((match) => match === event);
+  if (index >= 0) {
+    matches.splice(index, 1);
+  }
+}
+
+function eventHasHistoricalEquivalentFields(event: RankingAuditEvent) {
+  return Boolean(
+    event.match_number !== null &&
+      event.event_type &&
+      event.side &&
+      normalizeText(event.player_name_raw ?? "")
+  );
+}
+
+function buildHistoricalEquivalentReviewReason(params: {
+  classification: HistoricalEquivalentReviewClassification;
+  event: RankingAuditEvent;
+  maxHistoricalMatchNumber: number | null;
+}) {
+  const { classification, event, maxHistoricalMatchNumber } = params;
+
+  if (classification === "EQUIVALENTE_PROVAVEL") {
+    return "source_cell vazio no banco, mas existe evento no JSON com mesma partida, tipo, lado e nome normalizado.";
+  }
+
+  if (classification === "MANUAL_POSTERIOR_PROVAVEL") {
+    return maxHistoricalMatchNumber === null
+      ? "A partida nao faz parte da cobertura conhecida do JSON historico."
+      : `Partida posterior ao maior jogo coberto pelo JSON historico (#${maxHistoricalMatchNumber}).`;
+  }
+
+  if (classification === "SEM_EQUIVALENTE") {
+    return "A partida existe no JSON, mas nao ha evento compativel por partida, tipo, lado e nome normalizado.";
+  }
+
+  if (!eventHasHistoricalEquivalentFields(event)) {
+    return "Faltam dados suficientes para comparar com seguranca: partida, tipo, lado ou nome bruto.";
+  }
+
+  if (getNormalizedSourceCell(event.source_cell)) {
+    return "source_cell do banco nao encontrou par exato e a evidencia restante nao permite assumir a origem.";
+  }
+
+  return "Nao ha evidencia suficiente para classificar com seguranca.";
+}
+
+function getHistoricalEquivalentReviewClassification(params: {
+  event: RankingAuditEvent;
+  hasBaseEquivalent: boolean;
+  historicalMatchNumbers: Set<number>;
+  maxHistoricalMatchNumber: number | null;
+}): HistoricalEquivalentReviewClassification {
+  const {
+    event,
+    hasBaseEquivalent,
+    historicalMatchNumbers,
+    maxHistoricalMatchNumber,
+  } = params;
+  const hasSourceCell = Boolean(getNormalizedSourceCell(event.source_cell));
+
+  if (!eventHasHistoricalEquivalentFields(event)) return "INDETERMINADO";
+
+  if (hasBaseEquivalent) {
+    return hasSourceCell ? "INDETERMINADO" : "EQUIVALENTE_PROVAVEL";
+  }
+
+  if (
+    event.match_number !== null &&
+    maxHistoricalMatchNumber !== null &&
+    event.match_number > maxHistoricalMatchNumber
+  ) {
+    return "MANUAL_POSTERIOR_PROVAVEL";
+  }
+
+  if (
+    event.match_number !== null &&
+    historicalMatchNumbers.has(event.match_number)
+  ) {
+    return "SEM_EQUIVALENTE";
+  }
+
+  return "INDETERMINADO";
+}
+
+function sortHistoricalEquivalentReviewEvents(
+  a: HistoricalEquivalentReviewEvent,
+  b: HistoricalEquivalentReviewEvent
+) {
+  if (Number(a.matchVerified) !== Number(b.matchVerified)) {
+    return Number(b.matchVerified) - Number(a.matchVerified);
+  }
+
+  const aMatch = a.matchNumber ?? Number.MAX_SAFE_INTEGER;
+  const bMatch = b.matchNumber ?? Number.MAX_SAFE_INTEGER;
+  if (aMatch !== bMatch) return aMatch - bMatch;
+
+  return a.playerName.localeCompare(b.playerName);
+}
+
+function buildHistoricalEquivalentReviewSummary(params: {
+  events: RankingAuditEvent[];
+  matches: RankingAuditMatch[];
+  players: Player[];
+}): HistoricalEquivalentReviewSummary {
+  const { events, matches, players } = params;
+  const expectedEvents = getExpectedHistoricalEvents();
+  const expectedBySource = new Map<string, ExpectedHistoricalEvent[]>();
+  const expectedByBase = new Map<string, ExpectedHistoricalEvent[]>();
+  const historicalMatchNumbers = new Set(
+    HISTORICAL_IMPORT.matches.map((match) => match.matchNumber)
+  );
+  const maxHistoricalMatchNumber =
+    historicalMatchNumbers.size === 0
+      ? null
+      : Math.max(...Array.from(historicalMatchNumbers));
+  const playersById = new Map(players.map((player) => [player.id, player]));
+  const { matchesById, matchesByNumber } = buildRankingAuditMatchIndexes(matches);
+
+  expectedEvents.forEach((event) => {
+    const sourceKey = getExpectedCoverageSourceKey(event);
+    if (sourceKey) addToListMap(expectedBySource, sourceKey, event);
+    addToListMap(expectedByBase, getExpectedCoverageBaseKey(event), event);
+  });
+
+  const exactMatchedEventIds = new Set<string>();
+
+  events.forEach((event) => {
+    const sourceMatch = takeExpectedCoverageMatch(
+      expectedBySource,
+      getDatabaseCoverageSourceKey(event)
+    );
+
+    if (!sourceMatch) return;
+
+    exactMatchedEventIds.add(event.id);
+    removeExpectedCoverageBaseMatch(expectedByBase, sourceMatch);
+  });
+
+  const reviewEvents = events
+    .filter((event) => !exactMatchedEventIds.has(event.id))
+    .map((event) => {
+      const baseMatch = takeExpectedCoverageMatch(
+        expectedByBase,
+        getDatabaseCoverageBaseKey(event)
+      );
+      const classification = getHistoricalEquivalentReviewClassification({
+        event,
+        hasBaseEquivalent: Boolean(baseMatch),
+        historicalMatchNumbers,
+        maxHistoricalMatchNumber,
+      });
+      const match = getMatchForAuditEvent({
+        event,
+        matchesById,
+        matchesByNumber,
+      });
+      const player = event.player_id ? playersById.get(event.player_id) : null;
+      const playerNameRaw = event.player_name_raw?.trim() || "Jogador sem nome";
+
+      return {
+        id: event.id,
+        playerName: player?.name ?? playerNameRaw,
+        eventType: event.event_type || "SEM_TIPO",
+        matchNumber: event.match_number,
+        playerNameRaw,
+        playerId: event.player_id,
+        sourceCell: event.source_cell,
+        side: event.side || "SEM_LADO",
+        matchVerified: Boolean(match?.verified),
+        classification,
+        reason: buildHistoricalEquivalentReviewReason({
+          classification,
+          event,
+          maxHistoricalMatchNumber,
+        }),
+      };
+    })
+    .sort(sortHistoricalEquivalentReviewEvents);
+
+  const withoutEquivalentEvents = reviewEvents.filter(
+    (event) => event.classification === "SEM_EQUIVALENTE"
+  ).length;
+  const probableEquivalentEvents = reviewEvents.filter(
+    (event) => event.classification === "EQUIVALENTE_PROVAVEL"
+  ).length;
+  const probableManualEvents = reviewEvents.filter(
+    (event) => event.classification === "MANUAL_POSTERIOR_PROVAVEL"
+  ).length;
+  const indeterminateEvents = reviewEvents.filter(
+    (event) => event.classification === "INDETERMINADO"
+  ).length;
+
+  return {
+    totalForReview: reviewEvents.length,
+    criticalReviewEvents: withoutEquivalentEvents + indeterminateEvents,
+    withoutEquivalentEvents,
+    probableEquivalentEvents,
+    probableManualEvents,
+    indeterminateEvents,
+    events: reviewEvents,
+  };
+}
+
 function getHealthStatus(linkedEventsPercent: number): DataHealthStatus {
   if (linkedEventsPercent >= 95) {
     return {
@@ -2572,6 +2827,11 @@ export async function getRankingsDataHealthAudit(): Promise<RankingsDataHealthAu
     players: playerList,
     aliases: aliasList,
   });
+  const historicalEquivalentReview = buildHistoricalEquivalentReviewSummary({
+    events,
+    matches,
+    players: playerList,
+  });
   const officialRankingValidator = buildOfficialRankingValidatorSummary({
     events,
     matches,
@@ -2593,12 +2853,14 @@ export async function getRankingsDataHealthAudit(): Promise<RankingsDataHealthAu
     health: getHealthStatus(linkedEventsPercent),
     reconciliationSummary,
     importCoverageSummary,
+    historicalEquivalentReview,
     officialRankingValidator,
     unlinkedEventNames: unlinkedEventNames.slice(0, AUDIT_PREVIEW_LIMIT),
     aliasConflicts: aliasConflicts.slice(0, AUDIT_PREVIEW_LIMIT),
     possibleDuplicateGroups: possibleDuplicateGroups.slice(0, AUDIT_PREVIEW_LIMIT),
     hasRelevantIssues:
       officialRankingValidator.divergentPlayersCount > 0 ||
+      historicalEquivalentReview.criticalReviewEvents > 0 ||
       importCoverageSummary.missingExpectedEvents > 0 ||
       eventsWithoutPlayerId > 0 ||
       aliasConflicts.length > 0 ||
