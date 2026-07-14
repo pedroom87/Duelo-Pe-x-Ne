@@ -1,5 +1,7 @@
 # Changelog
 
+- v0.9.12 - Conferencia por Lado
+
 - v0.9.11 - Assistente de Curadoria
 
 - v0.9.10 - Correcao Guiada

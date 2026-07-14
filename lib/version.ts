@@ -9,16 +9,16 @@ export type VersionInfo = {
 };
 
 /**
- * Valores desta Sprint (Duel Legacy / 0.9.11)
+ * Valores desta Sprint (Duel Legacy / 0.9.12)
  */
-const VERSION_NUMBER = "0.9.11";
-const VERSION_CODENAME = "Assistente de Curadoria";
+const VERSION_NUMBER = "0.9.12";
+const VERSION_CODENAME = "Conferencia por Lado";
 const VERSION_RELEASED_AT = "2026-07-14";
 const VERSION_COMMIT = null;
 const VERSION_HIGHLIGHTS = [
-  "Sugestoes deterministicas de destino",
-  "Pontuacao explicavel para candidatos",
-  "Selecao manual antes da correcao guiada",
+  "Eventos separados por lado na edicao da partida",
+  "Paineis visuais para Sao Paulo e Palmeiras",
+  "Secao para eventos sem lado identificado",
 ];
 
 function getCommitFromEnv() {
