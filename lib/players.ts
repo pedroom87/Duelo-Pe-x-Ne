@@ -42,6 +42,22 @@ export type PlayerWithAliases = Player & {
   aliases: PlayerAlias[];
 };
 
+export type CurationAssistantCandidate = {
+  playerId: string;
+  name: string;
+  side: string;
+  aliases: string[];
+  score: number;
+  confidence: number;
+  positiveReasons: string[];
+  warnings: string[];
+};
+
+export type CurationAssistantCandidateInput = {
+  names: string[];
+  side: string;
+};
+
 export type PlayerGlobalSearchAlias = {
   id: string;
   alias: string;
@@ -503,6 +519,151 @@ function sortPlayerSummaries(
 ) {
   if (a.side !== b.side) return a.side.localeCompare(b.side);
   return a.name.localeCompare(b.name);
+}
+
+function getBigrams(value: string) {
+  const padded = ` ${value} `;
+  const bigrams: string[] = [];
+
+  for (let index = 0; index < padded.length - 1; index += 1) {
+    bigrams.push(padded.slice(index, index + 2));
+  }
+
+  return bigrams;
+}
+
+function getNameSimilarity(a: string, b: string) {
+  const left = normalizeText(a);
+  const right = normalizeText(b);
+
+  if (!left || !right) return 0;
+  if (left === right) return 1;
+
+  const leftBigrams = getBigrams(left);
+  const rightBigrams = getBigrams(right);
+  const rightCounts = new Map<string, number>();
+
+  rightBigrams.forEach((bigram) => {
+    rightCounts.set(bigram, (rightCounts.get(bigram) ?? 0) + 1);
+  });
+
+  let intersection = 0;
+
+  leftBigrams.forEach((bigram) => {
+    const count = rightCounts.get(bigram) ?? 0;
+    if (count === 0) return;
+
+    intersection += 1;
+    rightCounts.set(bigram, count - 1);
+  });
+
+  return (2 * intersection) / (leftBigrams.length + rightBigrams.length);
+}
+
+function clampScore(score: number) {
+  return Math.max(0, Math.min(100, Math.round(score)));
+}
+
+export function getCurationAssistantCandidates(
+  players: PlayerWithAliases[],
+  input: CurationAssistantCandidateInput
+): CurationAssistantCandidate[] {
+  const targetNames = Array.from(
+    new Set(input.names.map((name) => name.trim()).filter(Boolean))
+  );
+  const targetKeys = new Set(
+    targetNames.map((name) => normalizeText(name)).filter(Boolean)
+  );
+
+  if (targetNames.length === 0 || targetKeys.size === 0) return [];
+
+  return players
+    .map((player) => {
+      const aliases = [...(player.aliases ?? [])].sort((a, b) =>
+        a.alias.localeCompare(b.alias)
+      );
+      const playerNameKey = normalizeText(player.name);
+      const aliasKeys = aliases
+        .map((alias) => normalizeText(alias.normalized_alias || alias.alias))
+        .filter(Boolean);
+      const candidateLabels = [
+        player.name,
+        ...aliases.map((alias) => alias.alias),
+      ];
+      const exactNameMatch = targetKeys.has(playerNameKey);
+      const exactAliasMatch = aliasKeys.some((aliasKey) => targetKeys.has(aliasKey));
+      const similarities = targetNames.flatMap((targetName) =>
+        candidateLabels.map((candidateLabel) =>
+          getNameSimilarity(targetName, candidateLabel)
+        )
+      );
+      const bestSimilarity = similarities.length > 0 ? Math.max(...similarities) : 0;
+      const positiveReasons: string[] = [];
+      const warnings: string[] = [];
+      let score = 0;
+
+      if (player.side === input.side) {
+        score += 25;
+        positiveReasons.push("mesmo lado");
+      } else {
+        score -= 35;
+        warnings.push("conflito de lado");
+      }
+
+      if (exactNameMatch) {
+        score += 45;
+        positiveReasons.push("nome normalizado identico");
+      }
+
+      if (exactAliasMatch) {
+        score += 40;
+        positiveReasons.push("alias normalizado identico");
+      }
+
+      if (bestSimilarity >= 0.55) {
+        const similarityScore = Math.round(bestSimilarity * 30);
+        score += similarityScore;
+        positiveReasons.push(
+          `similaridade de nome ${Math.round(bestSimilarity * 100)}%`
+        );
+      } else if (!exactNameMatch && !exactAliasMatch) {
+        score -= 15;
+        warnings.push("identidade pouco parecida");
+      }
+
+      if (player.side !== input.side && !exactNameMatch && !exactAliasMatch) {
+        score -= 20;
+        warnings.push("conflito claro de identidade");
+      }
+
+      const finalScore = clampScore(score);
+
+      return {
+        playerId: player.id,
+        name: player.name,
+        side: player.side,
+        aliases: aliases.map((alias) => alias.alias),
+        score: finalScore,
+        confidence: finalScore,
+        positiveReasons,
+        warnings,
+      };
+    })
+    .filter(
+      (candidate) =>
+        candidate.score >= 30 ||
+        candidate.positiveReasons.includes("nome normalizado identico") ||
+        candidate.positiveReasons.includes("alias normalizado identico")
+    )
+    .sort((a, b) => {
+      if (a.score !== b.score) return b.score - a.score;
+      if (a.side !== b.side) {
+        if (a.side === input.side) return -1;
+        if (b.side === input.side) return 1;
+      }
+
+      return a.name.localeCompare(b.name);
+    });
 }
 
 function uniquePlayerSummaries(players: DataHealthPlayerSummary[]) {

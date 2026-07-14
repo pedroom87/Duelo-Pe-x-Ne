@@ -9,16 +9,16 @@ export type VersionInfo = {
 };
 
 /**
- * Valores desta Sprint (Duel Legacy / 0.9.10)
+ * Valores desta Sprint (Duel Legacy / 0.9.11)
  */
-const VERSION_NUMBER = "0.9.10";
-const VERSION_CODENAME = "Correcao Guiada";
+const VERSION_NUMBER = "0.9.11";
+const VERSION_CODENAME = "Assistente de Curadoria";
 const VERSION_RELEASED_AT = "2026-07-14";
 const VERSION_COMMIT = null;
 const VERSION_HIGHLIGHTS = [
-  "Correcao guiada de divergencias reais",
-  "Previa com destino unico, eventos e aliases",
-  "Validacao segura antes de escrever no banco",
+  "Sugestoes deterministicas de destino",
+  "Pontuacao explicavel para candidatos",
+  "Selecao manual antes da correcao guiada",
 ];
 
 function getCommitFromEnv() {

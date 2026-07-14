@@ -47,3 +47,9 @@ Motivo: curadoria e operacao administrativa; a lista de jogadores deve continuar
 Decisao: migrations e alteracoes de schema exigem autorizacao explicita.
 
 Motivo: o historico e a confiabilidade dos rankings dependem de mudancas rastreaveis e revisadas.
+
+## Sistema sugere; administrador decide
+
+Decisao: o Assistente de Curadoria pode sugerir jogadores candidatos, mas nenhuma sugestao e aplicada automaticamente.
+
+Motivo: divergencias sem destino unico dependem de julgamento humano. A pontuacao ajuda a ordenar candidatos, mas a escrita continua exigindo selecao e confirmacao explicita do administrador.

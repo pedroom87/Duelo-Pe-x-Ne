@@ -3,12 +3,14 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   deletePlayerSafely,
+  getCurationAssistantCandidates,
   getPlayerGlobalSearchIndex,
   getPlayersWithAliases,
   getPlayerDeletionPreview,
   getRankingsDataHealthAudit,
   updatePlayerBasic,
   type ExistingPlayerDeletionPreview,
+  type CurationAssistantCandidate,
   type PlayerGlobalSearchIndex,
   type PlayerGlobalSearchPlayer,
   type PlayerAlias,
@@ -1102,9 +1104,37 @@ function getOfficialValidatorUnlinkedEventNames(row: OfficialRankingValidatorRow
 
 type OfficialRankingValidatorBlockProps = {
   summary: OfficialRankingValidatorSummary;
-  onPrepareGuidedCorrection: (row: OfficialRankingValidatorRow) => void;
+  players: PlayerWithAliases[];
+  onPrepareGuidedCorrection: (
+    row: OfficialRankingValidatorRow,
+    targetPlayerId?: string
+  ) => void;
   loadingKey: string | null;
 };
+
+function getOfficialValidatorCandidateNames(row: OfficialRankingValidatorRow) {
+  return Array.from(
+    new Set(
+      [
+        row.playerName,
+        ...row.rawHistoricalNames,
+        ...row.aliases
+          .filter((alias) => alias.source === "Grupo oficial")
+          .map((alias) => alias.alias),
+      ]
+        .map((name) => name.trim())
+        .filter(Boolean)
+    )
+  );
+}
+
+function hasAmbiguousCurationCandidates(
+  candidates: CurationAssistantCandidate[]
+) {
+  if (candidates.length < 2) return false;
+
+  return candidates[0]!.score - candidates[1]!.score <= 8;
+}
 
 function getOfficialValidatorGuidedCorrectionState(
   row: OfficialRankingValidatorRow
@@ -1366,6 +1396,7 @@ function OfficialRankingValidatorInvestigationList({
 
 function OfficialRankingValidatorBlock({
   summary,
+  players,
   onPrepareGuidedCorrection,
   loadingKey,
 }: OfficialRankingValidatorBlockProps) {
@@ -1442,6 +1473,17 @@ function OfficialRankingValidatorBlock({
         {summary.rows.map((row) => {
           const guidedCorrection = getOfficialValidatorGuidedCorrectionState(row);
           const correctionLoadingKey = `resolve:${row.key}`;
+          const assistantCandidates =
+            row.status === "Divergente" &&
+            row.difference > 0 &&
+            !guidedCorrection.canPrepare
+              ? getCurationAssistantCandidates(players, {
+                  names: getOfficialValidatorCandidateNames(row),
+                  side: row.side,
+                })
+              : [];
+          const hasAmbiguity =
+            hasAmbiguousCurationCandidates(assistantCandidates);
 
           return (
             <details
@@ -1597,6 +1639,99 @@ function OfficialRankingValidatorBlock({
                   <p className="mt-3 rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-2 text-xs text-zinc-400">
                     {guidedCorrection.reason}
                   </p>
+
+                  {!guidedCorrection.canPrepare &&
+                  row.status === "Divergente" &&
+                  row.difference > 0 ? (
+                    <div className="mt-3 rounded-lg border border-zinc-800 bg-zinc-950 p-3">
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <p className="text-sm font-black text-zinc-100">
+                            Sugestoes de destino
+                          </p>
+                          <p className="mt-1 text-xs text-zinc-500">
+                            O sistema sugere; o administrador decide.
+                          </p>
+                        </div>
+                        <span className="rounded-full border border-zinc-700 px-2 py-1 text-xs text-zinc-300">
+                          {formatNumber(assistantCandidates.length)}
+                        </span>
+                      </div>
+
+                      {hasAmbiguity ? (
+                        <p className="mt-3 rounded-lg border border-yellow-800 bg-yellow-950/25 px-3 py-2 text-xs font-semibold text-yellow-100">
+                          Ha candidatos empatados ou muito proximos. Nenhum destino
+                          foi escolhido automaticamente.
+                        </p>
+                      ) : null}
+
+                      {assistantCandidates.length === 0 ? (
+                        <p className="mt-3 rounded-lg border border-zinc-800 bg-zinc-900 px-3 py-2 text-xs text-zinc-400">
+                          Nenhum candidato encontrado. Se o jogador nao existir no
+                          cadastro, crie o jogador fora desta Sprint antes de corrigir.
+                        </p>
+                      ) : (
+                        <div className="mt-3 max-h-96 space-y-2 overflow-y-auto pr-1">
+                          {assistantCandidates.map((candidate) => (
+                            <div
+                              key={candidate.playerId}
+                              className="rounded-lg border border-zinc-800 bg-zinc-900 p-3 text-xs text-zinc-300"
+                            >
+                              <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                                <div className="min-w-0">
+                                  <p className="break-words text-sm font-black text-zinc-100">
+                                    {candidate.name}
+                                  </p>
+                                  <p className="mt-1 text-zinc-500">
+                                    {formatAuditSide(candidate.side)} - confianca{" "}
+                                    {formatNumber(candidate.confidence)}%
+                                  </p>
+                                  <p className="mt-1 break-words text-zinc-500">
+                                    Aliases:{" "}
+                                    {candidate.aliases.length > 0
+                                      ? candidate.aliases.join(", ")
+                                      : "sem aliases"}
+                                  </p>
+                                </div>
+
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    onPrepareGuidedCorrection(row, candidate.playerId)
+                                  }
+                                  disabled={loadingKey !== null}
+                                  className="rounded-lg bg-cyan-700 px-3 py-2 text-xs font-bold text-white transition hover:bg-cyan-600 disabled:opacity-50"
+                                >
+                                  {loadingKey === correctionLoadingKey
+                                    ? "Selecionando..."
+                                    : "Selecionar"}
+                                </button>
+                              </div>
+
+                              <div className="mt-3 flex flex-wrap gap-2">
+                                {candidate.positiveReasons.map((reason) => (
+                                  <span
+                                    key={reason}
+                                    className="rounded-full border border-emerald-800 bg-emerald-950/25 px-2 py-1 text-emerald-200"
+                                  >
+                                    {reason}
+                                  </span>
+                                ))}
+                                {candidate.warnings.map((warning) => (
+                                  <span
+                                    key={warning}
+                                    className="rounded-full border border-yellow-800 bg-yellow-950/25 px-2 py-1 text-yellow-100"
+                                  >
+                                    {warning}
+                                  </span>
+                                ))}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  ) : null}
 
                   {row.status !== "Divergente" ? (
                     <p className="mt-3 rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-2 text-xs text-zinc-400">
@@ -2208,15 +2343,21 @@ export default function PlayerList({
   }
 
   async function buildIdentityResolutionPreview(
-    row: OfficialRankingValidatorRow
+    row: OfficialRankingValidatorRow,
+    selectedTargetPlayerId?: string
   ): Promise<IdentityResolutionPreview | null> {
     const guidedCorrection = getOfficialValidatorGuidedCorrectionState(row);
-    if (!guidedCorrection.canPrepare) {
+    if (row.status !== "Divergente" || row.difference <= 0) {
       setFeedback(guidedCorrection.reason);
       return null;
     }
 
-    const targetPlayerId = row.matchedPlayers[0]?.id ?? "";
+    if (!guidedCorrection.canPrepare && !selectedTargetPlayerId) {
+      setFeedback(guidedCorrection.reason);
+      return null;
+    }
+
+    const targetPlayerId = selectedTargetPlayerId ?? row.matchedPlayers[0]?.id ?? "";
     const target = playerList.find((player) => player.id === targetPlayerId);
     if (!target) return null;
 
@@ -2375,10 +2516,13 @@ export default function PlayerList({
     };
   }
 
-  async function handlePrepareIdentityResolution(row: OfficialRankingValidatorRow) {
+  async function handlePrepareIdentityResolution(
+    row: OfficialRankingValidatorRow,
+    targetPlayerId?: string
+  ) {
     try {
       setValidatorActionLoadingKey(`resolve:${row.key}`);
-      const preview = await buildIdentityResolutionPreview(row);
+      const preview = await buildIdentityResolutionPreview(row, targetPlayerId);
 
       if (!preview) {
         setFeedback("Selecione um destino valido para resolver a divergencia.");
@@ -3301,6 +3445,7 @@ export default function PlayerList({
         <div id={OFFICIAL_VALIDATOR_SECTION_ID}>
           <OfficialRankingValidatorBlock
             summary={officialRankingValidator}
+            players={playerList}
             onPrepareGuidedCorrection={handlePrepareIdentityResolution}
             loadingKey={validatorActionLoadingKey}
           />

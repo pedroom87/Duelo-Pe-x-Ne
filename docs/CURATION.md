@@ -93,6 +93,21 @@ A escrita permitida pela correcao guiada e limitada a:
 
 Se qualquer condicao falhar, a acao permanece bloqueada como `Revisao manual necessaria`.
 
+Na Sprint `0.9.11`, quando nao houver destino unico automatico, o Validador mostra `Sugestoes de destino`.
+
+As sugestoes sao deterministicas e consideram:
+
+- nome normalizado identico;
+- alias normalizado identico;
+- mesmo lado;
+- similaridade de nome;
+- conflito de lado;
+- conflito claro de identidade.
+
+Cada candidato mostra `player_id`, nome, lado, aliases, score/confianca, motivos positivos e alertas. A lista e ordenada por score decrescente.
+
+O sistema nunca seleciona candidato automaticamente. Em empate ou candidatos muito proximos, mostra aviso de ambiguidade. O administrador precisa clicar em `Selecionar`, revisar a previa segura e confirmar explicitamente antes de qualquer escrita.
+
 ## Curadoria de Identidades
 
 Agrupa problemas de identidade:
