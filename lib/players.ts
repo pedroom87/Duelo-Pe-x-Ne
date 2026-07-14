@@ -203,16 +203,19 @@ export type HistoricalImportCoverageSummary = {
 export type OfficialRankingValidationStatus = "OK" | "Divergente";
 
 export type OfficialRankingValidatorHistoricalEvent = {
+  investigationId: string;
   matchNumber: number;
   seq: number;
   playerNameRaw: string;
   eventType: string;
   side: string;
   sourceCell: string | null;
+  matchVerified: boolean;
 };
 
 export type OfficialRankingValidatorDatabaseEvent = {
   id: string;
+  investigationId: string;
   matchNumber: number | null;
   seq: number | null;
   playerNameRaw: string;
@@ -221,6 +224,33 @@ export type OfficialRankingValidatorDatabaseEvent = {
   sourceCell: string | null;
   playerId: string | null;
   resolvedPlayerId: string | null;
+  matchVerified: boolean;
+};
+
+export type OfficialRankingValidatorEventSource = "Historico" | "Banco";
+
+export type OfficialRankingValidatorDiagnosis =
+  | "alias ausente"
+  | "identidade"
+  | "evento excedente"
+  | "evento faltante"
+  | "jogador errado"
+  | "sem diagnostico";
+
+export type OfficialRankingValidatorInvestigationEvent = {
+  investigationId: string;
+  source: OfficialRankingValidatorEventSource;
+  eventId: string | null;
+  eventType: string;
+  matchNumber: number | null;
+  seq: number | null;
+  playerNameRaw: string;
+  playerId: string | null;
+  sourceCell: string | null;
+  side: string;
+  matchVerified: boolean;
+  diagnosis: OfficialRankingValidatorDiagnosis;
+  probableCause: string;
 };
 
 export type OfficialRankingValidatorAlias = {
@@ -244,6 +274,8 @@ export type OfficialRankingValidatorRow = {
   aliases: OfficialRankingValidatorAlias[];
   historicalEvents: OfficialRankingValidatorHistoricalEvent[];
   databaseEvents: OfficialRankingValidatorDatabaseEvent[];
+  investigationEvents: OfficialRankingValidatorInvestigationEvent[];
+  probableCause: string;
   matchNumbers: number[];
   eventCount: number;
   isFeatured: boolean;
@@ -567,6 +599,17 @@ function getMatchForAuditEvent(params: {
   return null;
 }
 
+function buildRankingAuditMatchIndexes(matches: RankingAuditMatch[]) {
+  return {
+    matchesById: new Map(matches.map((match) => [match.id, match])),
+    matchesByNumber: new Map(
+      matches
+        .filter((match) => match.match_number !== null)
+        .map((match) => [match.match_number as number, match])
+    ),
+  };
+}
+
 function buildRankingsReconciliationSummary(
   events: RankingAuditEvent[],
   matches: RankingAuditMatch[],
@@ -576,12 +619,7 @@ function buildRankingsReconciliationSummary(
   const playersById = new Map(players.map((player) => [player.id, player]));
   const playersByNormalizedName = new Map<string, Player[]>();
   const aliasesByNormalized = new Map<string, PlayerAlias[]>();
-  const matchesById = new Map(matches.map((match) => [match.id, match]));
-  const matchesByNumber = new Map(
-    matches
-      .filter((match) => match.match_number !== null)
-      .map((match) => [match.match_number as number, match])
-  );
+  const { matchesById, matchesByNumber } = buildRankingAuditMatchIndexes(matches);
 
   players.forEach((player) => {
     const normalizedName = normalizeText(player.name);
@@ -927,6 +965,8 @@ type OfficialRankingValidatorDraft = Omit<
   | "aliases"
   | "historicalEvents"
   | "databaseEvents"
+  | "investigationEvents"
+  | "probableCause"
   | "matchNumbers"
   | "eventCount"
 > & {
@@ -998,24 +1038,29 @@ function getOfficialValidatorGroupByKey(key: string) {
 }
 
 function toOfficialValidatorHistoricalEvent(
-  event: ExpectedHistoricalEvent
+  event: ExpectedHistoricalEvent,
+  matchVerified: boolean
 ): OfficialRankingValidatorHistoricalEvent {
   return {
+    investigationId: `historico:${event.matchNumber}:${event.seq}:${event.sourceCell ?? "-"}`,
     matchNumber: event.matchNumber,
     seq: event.seq,
     playerNameRaw: event.playerNameRaw,
     eventType: event.eventType,
     side: event.side,
     sourceCell: event.sourceCell,
+    matchVerified,
   };
 }
 
 function toOfficialValidatorDatabaseEvent(
   event: RankingAuditEvent,
-  resolvedPlayerId: string | null
+  resolvedPlayerId: string | null,
+  matchVerified: boolean
 ): OfficialRankingValidatorDatabaseEvent {
   return {
     id: event.id,
+    investigationId: `banco:${event.id}`,
     matchNumber: event.match_number,
     seq: event.seq,
     playerNameRaw: event.player_name_raw?.trim() || "Jogador sem nome",
@@ -1024,6 +1069,7 @@ function toOfficialValidatorDatabaseEvent(
     sourceCell: event.source_cell,
     playerId: event.player_id,
     resolvedPlayerId,
+    matchVerified,
   };
 }
 
@@ -1312,17 +1358,326 @@ function getOfficialValidatorFeatureOrder(row: OfficialRankingValidatorRow) {
   return OFFICIAL_RANKING_VALIDATOR_FEATURE_ORDER.get(row.key) ?? 999;
 }
 
+function getOfficialValidatorInvestigationKeys(event: {
+  matchNumber: number | null;
+  seq: number | null;
+  playerNameRaw: string;
+  eventType: string;
+  side: string;
+  sourceCell: string | null;
+}) {
+  const keys: string[] = [];
+  const matchNumber = event.matchNumber ?? "SEM_PARTIDA";
+  const normalizedSourceCell = getNormalizedSourceCell(event.sourceCell);
+
+  if (normalizedSourceCell) {
+    keys.push(`source:${matchNumber}:${normalizedSourceCell}`);
+  }
+
+  if (event.seq !== null) {
+    keys.push(`seq:${matchNumber}:${event.seq}:${event.eventType}:${event.side}`);
+  }
+
+  keys.push(
+    `base:${matchNumber}:${event.eventType}:${event.side}:${
+      normalizeText(event.playerNameRaw) || "sem-nome"
+    }`
+  );
+
+  return keys;
+}
+
+function takeOfficialValidatorInvestigationPair(params: {
+  keys: string[];
+  databaseIndexesByKey: Map<string, number[]>;
+  availableDatabaseIndexes: Set<number>;
+}) {
+  const { keys, databaseIndexesByKey, availableDatabaseIndexes } = params;
+
+  for (const key of keys) {
+    const indexes = databaseIndexesByKey.get(key) ?? [];
+    const index = indexes.find((candidateIndex) =>
+      availableDatabaseIndexes.has(candidateIndex)
+    );
+
+    if (index !== undefined) {
+      availableDatabaseIndexes.delete(index);
+      return index;
+    }
+  }
+
+  return null;
+}
+
+function officialValidatorHasRegisteredIdentity(params: {
+  rawName: string;
+  matchedPlayers: DataHealthPlayerSummary[];
+  aliases: OfficialRankingValidatorAlias[];
+}) {
+  const normalizedName = normalizeText(params.rawName);
+  if (!normalizedName) return false;
+
+  if (
+    params.matchedPlayers.some(
+      (player) => normalizeText(player.name) === normalizedName
+    )
+  ) {
+    return true;
+  }
+
+  return params.aliases.some(
+    (alias) =>
+      alias.source === "Cadastro" &&
+      normalizeText(alias.normalizedAlias || alias.alias) === normalizedName
+  );
+}
+
+function getOfficialValidatorWrongPlayerCause(params: {
+  rowKey: string;
+  event: OfficialRankingValidatorDatabaseEvent;
+  candidateIndex: ReturnType<typeof buildCoverageCandidatesIndex>;
+}) {
+  const { rowKey, event, candidateIndex } = params;
+
+  if (!event.playerId) return null;
+
+  const rawGroup = getOfficialValidatorGroupForName({
+    name: event.playerNameRaw,
+    side: event.side,
+  });
+
+  if (rawGroup && rawGroup.key !== rowKey) {
+    return `O nome bruto aponta para ${rawGroup.canonicalName}, mas o evento esta vinculado a outro grupo.`;
+  }
+
+  const rawCandidates = getCoverageCandidates({
+    normalizedName: normalizeText(event.playerNameRaw) || "sem-nome",
+    side: event.side,
+    ...candidateIndex,
+  });
+
+  if (rawCandidates.length === 1 && rawCandidates[0]!.id !== event.playerId) {
+    return `O nome bruto aponta para ${rawCandidates[0]!.name}, mas o player_id do evento e outro.`;
+  }
+
+  return null;
+}
+
+function getOfficialValidatorDefaultCause(
+  diagnosis: OfficialRankingValidatorDiagnosis
+) {
+  const causes: Record<OfficialRankingValidatorDiagnosis, string> = {
+    "alias ausente":
+      "O nome bruto aparece no historico, mas ainda nao esta coberto por nome oficial ou alias cadastrado.",
+    identidade:
+      "A divergencia depende de consolidacao de identidade antes de qualquer correcao.",
+    "evento excedente":
+      "Existe um gol no banco sem par equivalente no historico oficial.",
+    "evento faltante":
+      "Existe um gol no historico oficial sem par equivalente no banco.",
+    "jogador errado":
+      "O player_id do evento parece apontar para um jogador diferente do nome bruto.",
+    "sem diagnostico":
+      "Nao ha sinal suficiente para apontar uma causa provavel.",
+  };
+
+  return causes[diagnosis];
+}
+
+function getOfficialValidatorHistoricalDiagnosis(params: {
+  paired: boolean;
+  matchedPlayers: DataHealthPlayerSummary[];
+  hasRegisteredIdentity: boolean;
+}): OfficialRankingValidatorDiagnosis {
+  if (!params.paired) return "evento faltante";
+  if (!params.hasRegisteredIdentity) return "alias ausente";
+  if (params.matchedPlayers.length !== 1) return "identidade";
+  return "sem diagnostico";
+}
+
+function getOfficialValidatorDatabaseDiagnosis(params: {
+  paired: boolean;
+  wrongPlayerCause: string | null;
+  matchedPlayers: DataHealthPlayerSummary[];
+  hasRegisteredIdentity: boolean;
+  event: OfficialRankingValidatorDatabaseEvent;
+}): OfficialRankingValidatorDiagnosis {
+  if (params.wrongPlayerCause) return "jogador errado";
+  if (!params.paired) return "evento excedente";
+  if (!params.hasRegisteredIdentity) return "alias ausente";
+  if (!params.event.playerId || params.matchedPlayers.length !== 1) {
+    return "identidade";
+  }
+  return "sem diagnostico";
+}
+
+function buildOfficialValidatorInvestigationEvents(params: {
+  rowKey: string;
+  matchedPlayers: DataHealthPlayerSummary[];
+  aliases: OfficialRankingValidatorAlias[];
+  candidateIndex: ReturnType<typeof buildCoverageCandidatesIndex>;
+  historicalEvents: OfficialRankingValidatorHistoricalEvent[];
+  databaseEvents: OfficialRankingValidatorDatabaseEvent[];
+}) {
+  const {
+    rowKey,
+    matchedPlayers,
+    aliases,
+    candidateIndex,
+    historicalEvents,
+    databaseEvents,
+  } = params;
+  const databaseIndexesByKey = new Map<string, number[]>();
+  const availableDatabaseIndexes = new Set(
+    databaseEvents.map((_, index) => index)
+  );
+  const pairedDatabaseIndexes = new Set<number>();
+
+  databaseEvents.forEach((event, index) => {
+    getOfficialValidatorInvestigationKeys(event).forEach((key) => {
+      const current = databaseIndexesByKey.get(key) ?? [];
+      current.push(index);
+      databaseIndexesByKey.set(key, current);
+    });
+  });
+
+  const historicalRows = historicalEvents.map((event) => {
+    const databaseIndex = takeOfficialValidatorInvestigationPair({
+      keys: getOfficialValidatorInvestigationKeys(event),
+      databaseIndexesByKey,
+      availableDatabaseIndexes,
+    });
+    const paired = databaseIndex !== null;
+
+    if (databaseIndex !== null) {
+      pairedDatabaseIndexes.add(databaseIndex);
+    }
+
+    const hasRegisteredIdentity = officialValidatorHasRegisteredIdentity({
+      rawName: event.playerNameRaw,
+      matchedPlayers,
+      aliases,
+    });
+    const diagnosis = getOfficialValidatorHistoricalDiagnosis({
+      paired,
+      matchedPlayers,
+      hasRegisteredIdentity,
+    });
+    const probableCause =
+      diagnosis === "evento faltante" && !hasRegisteredIdentity
+        ? "O gol falta no banco e o nome bruto tambem nao esta coberto por alias cadastrado."
+        : getOfficialValidatorDefaultCause(diagnosis);
+
+    return {
+      investigationId: event.investigationId,
+      source: "Historico" as const,
+      eventId: null,
+      eventType: event.eventType,
+      matchNumber: event.matchNumber,
+      seq: event.seq,
+      playerNameRaw: event.playerNameRaw,
+      playerId: null,
+      sourceCell: event.sourceCell,
+      side: event.side,
+      matchVerified: event.matchVerified,
+      diagnosis,
+      probableCause,
+    };
+  });
+
+  const databaseRows = databaseEvents.map((event, index) => {
+    const paired = pairedDatabaseIndexes.has(index);
+    const wrongPlayerCause = getOfficialValidatorWrongPlayerCause({
+      rowKey,
+      event,
+      candidateIndex,
+    });
+    const hasRegisteredIdentity = officialValidatorHasRegisteredIdentity({
+      rawName: event.playerNameRaw,
+      matchedPlayers,
+      aliases,
+    });
+    const diagnosis = getOfficialValidatorDatabaseDiagnosis({
+      paired,
+      wrongPlayerCause,
+      matchedPlayers,
+      hasRegisteredIdentity,
+      event,
+    });
+
+    return {
+      investigationId: event.investigationId,
+      source: "Banco" as const,
+      eventId: event.id,
+      eventType: event.eventType,
+      matchNumber: event.matchNumber,
+      seq: event.seq,
+      playerNameRaw: event.playerNameRaw,
+      playerId: event.playerId,
+      sourceCell: event.sourceCell,
+      side: event.side,
+      matchVerified: event.matchVerified,
+      diagnosis,
+      probableCause:
+        wrongPlayerCause ?? getOfficialValidatorDefaultCause(diagnosis),
+    };
+  });
+
+  return [...historicalRows, ...databaseRows].sort((a, b) => {
+    const aMatch = a.matchNumber ?? 0;
+    const bMatch = b.matchNumber ?? 0;
+
+    if (aMatch !== bMatch) return aMatch - bMatch;
+    if ((a.seq ?? 0) !== (b.seq ?? 0)) return (a.seq ?? 0) - (b.seq ?? 0);
+    if (a.source !== b.source) return a.source.localeCompare(b.source);
+    return a.playerNameRaw.localeCompare(b.playerNameRaw);
+  });
+}
+
+function getOfficialValidatorProbableCause(
+  events: OfficialRankingValidatorInvestigationEvent[],
+  difference: number
+) {
+  const priority: OfficialRankingValidatorDiagnosis[] = [
+    "jogador errado",
+    "evento faltante",
+    "evento excedente",
+    "alias ausente",
+    "identidade",
+  ];
+
+  const found = priority
+    .map((diagnosis) => events.find((event) => event.diagnosis === diagnosis))
+    .find((event): event is OfficialRankingValidatorInvestigationEvent =>
+      Boolean(event)
+    );
+
+  if (found) return found.probableCause;
+
+  if (difference > 0) {
+    return getOfficialValidatorDefaultCause("evento faltante");
+  }
+
+  if (difference < 0) {
+    return getOfficialValidatorDefaultCause("evento excedente");
+  }
+
+  return getOfficialValidatorDefaultCause("sem diagnostico");
+}
+
 function buildOfficialRankingValidatorSummary(params: {
   events: RankingAuditEvent[];
+  matches: RankingAuditMatch[];
   players: Player[];
   aliases: PlayerAlias[];
 }): OfficialRankingValidatorSummary {
-  const { events, players, aliases } = params;
+  const { events, matches, players, aliases } = params;
   const expectedGoalEvents = getExpectedHistoricalEvents().filter(
     (event) => event.eventType === "GOL"
   );
   const candidateIndex = buildCoverageCandidatesIndex(players, aliases);
   const identityIndex = buildOfficialRankingValidatorIdentityIndex(players, aliases);
+  const { matchesById, matchesByNumber } = buildRankingAuditMatchIndexes(matches);
   const rankingAliases: AliasIdentity[] = aliases.map((alias) => ({
     player_id: alias.player_id,
     normalized_alias: alias.normalized_alias || alias.alias,
@@ -1346,7 +1701,10 @@ function buildOfficialRankingValidatorSummary(params: {
     mergeOfficialValidatorResolution(draft, resolution);
     draft.historicalGoals += 1;
     draft.rawHistoricalNames.add(event.playerNameRaw);
-    draft.historicalEvents.push(toOfficialValidatorHistoricalEvent(event));
+    const match = matchesByNumber.get(event.matchNumber) ?? null;
+    draft.historicalEvents.push(
+      toOfficialValidatorHistoricalEvent(event, Boolean(match?.verified))
+    );
     draft.matchNumbers.add(event.matchNumber);
   });
 
@@ -1362,10 +1720,16 @@ function buildOfficialRankingValidatorSummary(params: {
 
     mergeOfficialValidatorResolution(draft, resolution);
     draft.siteGoals += 1;
+    const match = getMatchForAuditEvent({
+      event,
+      matchesById,
+      matchesByNumber,
+    });
     draft.databaseEvents.push(
       toOfficialValidatorDatabaseEvent(
         event,
-        resolution.resolvedPlayerId ?? resolution.playerId
+        resolution.resolvedPlayerId ?? resolution.playerId,
+        Boolean(match?.verified)
       )
     );
     if (event.match_number !== null) {
@@ -1390,6 +1754,19 @@ function buildOfficialRankingValidatorSummary(params: {
         if (aMatch !== bMatch) return aMatch - bMatch;
         return (a.seq ?? 0) - (b.seq ?? 0);
       });
+      const validatorAliases = buildOfficialValidatorAliases({
+        rowKey: draft.key,
+        matchedPlayers,
+        aliases,
+      });
+      const investigationEvents = buildOfficialValidatorInvestigationEvents({
+        rowKey: draft.key,
+        matchedPlayers,
+        aliases: validatorAliases,
+        candidateIndex,
+        historicalEvents,
+        databaseEvents,
+      });
 
       return {
         key: draft.key,
@@ -1404,13 +1781,14 @@ function buildOfficialRankingValidatorSummary(params: {
           a.localeCompare(b)
         ),
         matchedPlayers,
-        aliases: buildOfficialValidatorAliases({
-          rowKey: draft.key,
-          matchedPlayers,
-          aliases,
-        }),
+        aliases: validatorAliases,
         historicalEvents,
         databaseEvents,
+        investigationEvents,
+        probableCause: getOfficialValidatorProbableCause(
+          investigationEvents,
+          difference
+        ),
         matchNumbers: Array.from(draft.matchNumbers).sort((a, b) => a - b),
         eventCount: historicalEvents.length + databaseEvents.length,
         isFeatured: draft.isFeatured,
@@ -2196,6 +2574,7 @@ export async function getRankingsDataHealthAudit(): Promise<RankingsDataHealthAu
   });
   const officialRankingValidator = buildOfficialRankingValidatorSummary({
     events,
+    matches,
     players: playerList,
     aliases: aliasList,
   });

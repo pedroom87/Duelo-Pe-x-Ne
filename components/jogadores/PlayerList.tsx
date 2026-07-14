@@ -50,6 +50,8 @@ type ImportCoverageSummary = RankingsDataHealthAudit["importCoverageSummary"];
 type OfficialRankingValidatorSummary =
   RankingsDataHealthAudit["officialRankingValidator"];
 type OfficialRankingValidatorRow = OfficialRankingValidatorSummary["rows"][number];
+type OfficialRankingValidatorInvestigationEvent =
+  OfficialRankingValidatorRow["investigationEvents"][number];
 type ImportCoverageEventSample =
   ImportCoverageSummary["samples"]["missingEvents"][number];
 type ImportCoveragePlayerDifference =
@@ -761,6 +763,48 @@ function formatOfficialValidatorMatches(row: OfficialRankingValidatorRow) {
   return row.matchNumbers.map((matchNumber) => `#${matchNumber}`).join(", ");
 }
 
+function formatOfficialValidatorDiagnosis(
+  diagnosis: OfficialRankingValidatorInvestigationEvent["diagnosis"]
+) {
+  const labels: Record<
+    OfficialRankingValidatorInvestigationEvent["diagnosis"],
+    string
+  > = {
+    "alias ausente": "Alias ausente",
+    identidade: "Identidade",
+    "evento excedente": "Evento excedente",
+    "evento faltante": "Evento faltante",
+    "jogador errado": "Jogador errado",
+    "sem diagnostico": "Sem diagnostico",
+  };
+
+  return labels[diagnosis];
+}
+
+function getOfficialValidatorDiagnosisClasses(
+  diagnosis: OfficialRankingValidatorInvestigationEvent["diagnosis"]
+) {
+  if (diagnosis === "sem diagnostico") {
+    return "border-zinc-700 bg-zinc-900 text-zinc-300";
+  }
+
+  if (diagnosis === "evento faltante" || diagnosis === "evento excedente") {
+    return "border-red-700 bg-red-950/35 text-red-200";
+  }
+
+  if (diagnosis === "jogador errado") {
+    return "border-orange-700 bg-orange-950/35 text-orange-200";
+  }
+
+  return "border-yellow-700 bg-yellow-950/35 text-yellow-200";
+}
+
+function formatInvestigationEventId(
+  event: OfficialRankingValidatorInvestigationEvent
+) {
+  return event.eventId ?? event.investigationId;
+}
+
 function getOfficialValidatorUnlinkedEventNames(row: OfficialRankingValidatorRow) {
   const byNormalizedName = new Map<string, string>();
 
@@ -780,14 +824,6 @@ function getOfficialValidatorUnlinkedEventNames(row: OfficialRankingValidatorRow
 
 type OfficialRankingValidatorBlockProps = {
   summary: OfficialRankingValidatorSummary;
-  playerList: PlayerWithAliases[];
-  selectedTargetByRowKey: Record<string, string>;
-  actionLoadingKey: string | null;
-  onSelectTarget: (rowKey: string, playerId: string) => void;
-  onPrepareResolution: (
-    row: OfficialRankingValidatorRow,
-    targetPlayerId: string
-  ) => Promise<void>;
 };
 
 function OfficialRankingValidatorEventList({
@@ -889,13 +925,129 @@ function OfficialRankingValidatorDatabaseEventList({
   );
 }
 
+function OfficialRankingValidatorInvestigationList({
+  events,
+}: {
+  events: OfficialRankingValidatorRow["investigationEvents"];
+}) {
+  if (events.length === 0) {
+    return (
+      <div className="rounded-lg border border-zinc-800 bg-zinc-950 p-3">
+        <p className="text-sm text-zinc-500">
+          Nenhum evento relacionado encontrado.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-lg border border-zinc-800 bg-zinc-950 p-3">
+      <div className="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <p className="text-xs font-bold uppercase tracking-[0.2em] text-zinc-500">
+            Investigacao evento a evento
+          </p>
+          <p className="mt-1 text-xs text-zinc-500">
+            Historico e banco na mesma lista, com diagnostico individual.
+          </p>
+        </div>
+        <span className="rounded-full border border-zinc-700 px-2 py-1 text-xs text-zinc-300">
+          {formatEventCountLabel(events.length)}
+        </span>
+      </div>
+
+      <div className="mt-3 max-h-[520px] space-y-2 overflow-y-auto pr-1">
+        {events.map((event) => (
+          <div
+            key={event.investigationId}
+            className="rounded-lg border border-zinc-800 bg-zinc-900 p-3 text-xs text-zinc-300"
+          >
+            <div className="flex flex-col gap-2 lg:flex-row lg:items-start lg:justify-between">
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="rounded-full border border-zinc-700 bg-zinc-950 px-2 py-1 font-bold text-zinc-200">
+                    {event.source}
+                  </span>
+                  <span
+                    className={`rounded-full border px-2 py-1 font-bold ${getOfficialValidatorDiagnosisClasses(
+                      event.diagnosis
+                    )}`}
+                  >
+                    {formatOfficialValidatorDiagnosis(event.diagnosis)}
+                  </span>
+                  <span
+                    className={`rounded-full border px-2 py-1 font-bold ${
+                      event.matchVerified
+                        ? "border-emerald-700 bg-emerald-950/30 text-emerald-200"
+                        : "border-yellow-700 bg-yellow-950/30 text-yellow-200"
+                    }`}
+                  >
+                    {event.matchVerified ? "Partida conferida" : "Nao conferida"}
+                  </span>
+                </div>
+
+                <p className="mt-3 break-words text-sm font-black text-zinc-100">
+                  {event.playerNameRaw}
+                </p>
+                <p className="mt-1 break-all text-zinc-500">
+                  event_id: {formatInvestigationEventId(event)}
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+              <div className="rounded-lg border border-zinc-800 bg-zinc-950 p-2">
+                <p className="text-zinc-500">event_type</p>
+                <p className="mt-1 font-bold text-zinc-100">
+                  {formatEventType(event.eventType)}
+                </p>
+              </div>
+              <div className="rounded-lg border border-zinc-800 bg-zinc-950 p-2">
+                <p className="text-zinc-500">partida</p>
+                <p className="mt-1 font-bold text-zinc-100">
+                  {formatMatchNumber(event.matchNumber)}
+                </p>
+              </div>
+              <div className="rounded-lg border border-zinc-800 bg-zinc-950 p-2">
+                <p className="text-zinc-500">player_id</p>
+                <p className="mt-1 break-all font-bold text-zinc-100">
+                  {event.playerId ?? "sem player_id"}
+                </p>
+              </div>
+              <div className="rounded-lg border border-zinc-800 bg-zinc-950 p-2">
+                <p className="text-zinc-500">source_cell</p>
+                <p className="mt-1 font-bold text-zinc-100">
+                  {formatSourceCell(event.sourceCell)}
+                </p>
+              </div>
+              <div className="rounded-lg border border-zinc-800 bg-zinc-950 p-2">
+                <p className="text-zinc-500">side</p>
+                <p className="mt-1 font-bold text-zinc-100">
+                  {formatAuditSide(event.side)}
+                </p>
+              </div>
+              <div className="rounded-lg border border-zinc-800 bg-zinc-950 p-2">
+                <p className="text-zinc-500">seq</p>
+                <p className="mt-1 font-bold text-zinc-100">
+                  {event.seq ?? "-"}
+                </p>
+              </div>
+              <div className="rounded-lg border border-zinc-800 bg-zinc-950 p-2 sm:col-span-2">
+                <p className="text-zinc-500">Causa provavel</p>
+                <p className="mt-1 font-semibold text-zinc-200">
+                  {event.probableCause}
+                </p>
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function OfficialRankingValidatorBlock({
   summary,
-  playerList,
-  selectedTargetByRowKey,
-  actionLoadingKey,
-  onSelectTarget,
-  onPrepareResolution,
 }: OfficialRankingValidatorBlockProps) {
   const cards = [
     {
@@ -924,6 +1076,9 @@ function OfficialRankingValidatorBlock({
             Validador oficial dos rankings
           </h3>
           <p className="mt-2 text-sm text-cyan-100">
+            Divergencias agora podem ser investigadas ate o evento individual, sem executar correcao.
+          </p>
+          <p className="hidden">
             Divergências viram ações manuais: ver detalhes, confirmar destino e só então executar.
           </p>
         </div>
@@ -947,18 +1102,6 @@ function OfficialRankingValidatorBlock({
 
       <div className="mt-4 space-y-3">
         {summary.rows.map((row) => {
-          const sidePlayers = playerList
-            .filter((player) => player.side === row.side)
-            .sort((a, b) => a.name.localeCompare(b.name));
-          const defaultTargetId =
-            row.matchedPlayers.length === 1 ? row.matchedPlayers[0]!.id : "";
-          const selectedTargetId =
-            selectedTargetByRowKey[row.key] ?? defaultTargetId;
-          const selectedTarget = sidePlayers.find(
-            (player) => player.id === selectedTargetId
-          );
-          const hasAvailableTarget = Boolean(selectedTarget);
-
           return (
             <details
               key={row.key}
@@ -1049,64 +1192,45 @@ function OfficialRankingValidatorBlock({
                   </div>
 
                   <div className="grid gap-3 lg:grid-cols-2">
-                    <OfficialRankingValidatorEventList
-                      title="Eventos no histórico"
-                      emptyMessage="Nenhum gol histórico neste grupo."
-                      events={row.historicalEvents}
-                    />
-                    <OfficialRankingValidatorDatabaseEventList
-                      title="Eventos no banco"
-                      emptyMessage="Nenhum gol no banco neste grupo."
-                      events={row.databaseEvents}
-                    />
+                    <div className="rounded-lg border border-zinc-800 bg-zinc-900 p-3 text-sm lg:col-span-2">
+                      <p className="text-xs font-bold uppercase tracking-[0.2em] text-zinc-500">
+                        Causa provavel
+                      </p>
+                      <p className="mt-2 font-semibold text-zinc-200">
+                        {row.probableCause}
+                      </p>
+                    </div>
+
+                    <div className="lg:col-span-2">
+                      <OfficialRankingValidatorInvestigationList
+                        events={row.investigationEvents}
+                      />
+                    </div>
+
                   </div>
                 </div>
 
                 <div className="rounded-lg border border-cyan-800 bg-cyan-950/20 p-3">
                   <p className="text-sm font-black text-cyan-100">
-                    Resolução manual
+                    Investigador
                   </p>
 
-                  <label className="mt-3 block text-xs font-bold uppercase tracking-[0.2em] text-cyan-200">
-                    Destino confirmado
-                    <select
-                      value={selectedTargetId}
-                      onChange={(event) =>
-                        onSelectTarget(row.key, event.target.value)
-                      }
-                      className="mt-2 w-full rounded-lg border border-cyan-800 bg-zinc-950 px-3 py-3 text-sm normal-case tracking-normal text-white"
-                    >
-                      <option value="">Selecione um jogador</option>
-                      {sidePlayers.map((player) => (
-                        <option key={player.id} value={player.id}>
-                          {player.name} ({formatAuditSide(player.side)})
-                        </option>
-                      ))}
-                    </select>
-                  </label>
+                  <div className="mt-3 rounded-lg border border-cyan-800 bg-zinc-950 px-3 py-3 text-xs font-bold uppercase tracking-[0.2em] text-cyan-200">
+                    Somente investigacao
+                  </div>
 
                   <p className="mt-3 text-xs text-cyan-100">
-                    A execução só acontece após confirmação explícita. Ao finalizar, a tela recarrega e o validador é recalculado.
+                    Nesta Sprint, a divergencia e apenas investigada ate o evento individual. Nenhuma correcao e aplicada por aqui.
                   </p>
 
                   <div className="mt-4 space-y-2">
                     <button
                       type="button"
-                      onClick={() =>
-                        selectedTarget
-                          ? onPrepareResolution(row, selectedTarget.id)
-                          : undefined
-                      }
-                      disabled={
-                        row.status !== "Divergente" ||
-                        !hasAvailableTarget ||
-                        actionLoadingKey !== null
-                      }
+                      onClick={() => undefined}
+                      disabled
                       className="w-full rounded-lg bg-cyan-700 px-4 py-3 text-sm font-bold text-white transition hover:bg-cyan-600 disabled:opacity-50"
                     >
-                      {actionLoadingKey === `resolve:${row.key}`
-                        ? "Aplicando..."
-                        : "Resolver divergência"}
+                      Correcao indisponivel nesta Sprint
                     </button>
 
                   </div>
@@ -2698,16 +2822,6 @@ export default function PlayerList({
         <div id={OFFICIAL_VALIDATOR_SECTION_ID}>
           <OfficialRankingValidatorBlock
             summary={officialRankingValidator}
-            playerList={playerList}
-            selectedTargetByRowKey={validatorTargetByRowKey}
-            actionLoadingKey={validatorActionLoadingKey}
-            onSelectTarget={(rowKey, playerId) =>
-              setValidatorTargetByRowKey((current) => ({
-                ...current,
-                [rowKey]: playerId,
-              }))
-            }
-            onPrepareResolution={handlePrepareIdentityResolution}
           />
         </div>
         {identityResolutionHistory.length > 0 ? (
